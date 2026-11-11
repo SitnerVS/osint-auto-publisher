@@ -289,7 +289,7 @@ export class ApprovalCoordinator {
     const timestamp = new Date().toISOString();
 
     const item = {
-      id: "test001",
+id: `test-${crypto.randomUUID().slice(0, 8)}`,
       content:
         "ТЕСТОВАЯ ТЕМА: Как проверить цифровой след компании с помощью OSINT",
       stage: "topic",
