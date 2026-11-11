@@ -8,6 +8,12 @@ const STAGE_NAMES = {
   final: "ФИНАЛЬНОЕ РАЗРЕШЕНИЕ"
 };
 
+const OUTBOX_RETRY_MS = 30_000;
+
+function json(data, status = 200) {
+  return Response.json(data, { status });
+}
+
 async function telegram(env, method, data) {
   const response = await fetch(
     `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`,
@@ -27,32 +33,9 @@ async function telegram(env, method, data) {
   return result;
 }
 
-async function saveEvent(env, event) {
-  const id = crypto.randomUUID();
-
-  await env.EDITORIAL_DATA.put(
-    `event:${Date.now()}:${id}`,
-    JSON.stringify({
-      ...event,
-      timestamp: new Date().toISOString()
-    })
-  );
-}
-
-async function sendApproval(env, item) {
-  if (!STAGES.includes(item.stage)) {
-    throw new Error("Invalid approval stage");
-  }
-
-  item.approval_id = crypto.randomUUID();
-
-  await env.EDITORIAL_DATA.put(
-    `item:${item.id}`,
-    JSON.stringify(item)
-  );
-
-  await telegram(env, "sendMessage", {
-    chat_id: env.TELEGRAM_CHAT_ID,
+function approvalMessage(item, chatId) {
+  return {
+    chat_id: chatId,
     text:
       `OSINT EDITORIAL\n\n` +
       `Материал: ${item.id}\n` +
@@ -79,261 +62,126 @@ async function sendApproval(env, item) {
         ]
       ]
     }
-  });
+  };
 }
 
-async function processCallback(env, q) {
-  const chatId = String(q.message?.chat?.id || "");
-  const userId = String(q.from?.id || "");
-
-  if (
-    chatId !== String(env.TELEGRAM_CHAT_ID) ||
-    userId !== String(env.TELEGRAM_CHAT_ID) ||
-    q.message?.chat?.type !== "private"
-  ) {
-    await telegram(env, "answerCallbackQuery", {
-      callback_query_id: q.id,
-      text: "Нет доступа"
-    });
-
-    return { status: "unauthorized" };
-  }
-
-  const parts = (q.data || "").split(":");
-  const action = parts[0];
-  const itemId = parts[1];
-  const approvalId = parts[2];
-
-  if (
-    !["approve", "reject", "revise"].includes(action) ||
-    !itemId ||
-    !approvalId
-  ) {
-    await telegram(env, "answerCallbackQuery", {
-      callback_query_id: q.id,
-      text: "Некорректная кнопка"
-    });
-
-    return { status: "invalid_callback" };
-  }
-
-  const key = `item:${itemId}`;
-  const raw = await env.EDITORIAL_DATA.get(key);
-
-  if (!raw) {
-    await telegram(env, "answerCallbackQuery", {
-      callback_query_id: q.id,
-      text: "Материал не найден"
-    });
-
-    return { status: "not_found" };
-  }
-
-  const item = JSON.parse(raw);
-
-  if (
-    item.status !== "pending" ||
-    item.approval_id !== approvalId
-  ) {
-    await telegram(env, "answerCallbackQuery", {
-      callback_query_id: q.id,
-      text: "Кнопка устарела или решение уже принято"
-    });
-
-    return { status: "stale" };
-  }
-
-  const currentStage = item.stage;
-
-  if (!STAGES.includes(currentStage)) {
-    await telegram(env, "answerCallbackQuery", {
-      callback_query_id: q.id,
-      text: "Ошибка этапа"
-    });
-
-    return { status: "invalid_stage" };
-  }
-
-  const timestamp = new Date().toISOString();
-
-  if (action === "approve") {
-    const index = STAGES.indexOf(currentStage);
-
-    item.approved_at = timestamp;
-
-    if (index === STAGES.length - 1) {
-      item.status = "publication_approved";
-      item.publication_approved_at = timestamp;
-    } else {
-      item.stage = STAGES[index + 1];
-      item.status = "pending";
-      delete item.approval_id;
-    }
-  } else {
-    item.status =
-      action === "reject"
-        ? "rejected"
-        : "revision_requested";
-
-    item.decision_at = timestamp;
-    delete item.approval_id;
-  }
-
-  await env.EDITORIAL_DATA.put(
-    key,
-    JSON.stringify(item)
+async function callCoordinator(env, path, payload) {
+  const id = env.APPROVAL_COORDINATOR.idFromName(
+    "osint-editorial"
   );
 
-  await saveEvent(env, {
-    item_id: item.id,
-    stage: currentStage,
-    action,
-    user_id: userId,
-    approval_id: approvalId,
-    callback_id: q.id
-  });
+  const stub = env.APPROVAL_COORDINATOR.get(id);
 
-  await telegram(env, "answerCallbackQuery", {
-    callback_query_id: q.id,
-    text: "Решение сохранено"
-  });
+  const response = await stub.fetch(
+    `https://approval-coordinator${path}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    }
+  );
 
-  let responseText;
+  const result = await response.json();
 
-  if (action === "approve") {
-    responseText =
-      item.status === "publication_approved"
-        ? "ФИНАЛЬНОЕ РАЗРЕШЕНИЕ ПОЛУЧЕНО. Публикация одобрена."
-        : `Этап «${STAGE_NAMES[currentStage]}» одобрен.`;
-  } else if (action === "reject") {
-    responseText =
-      "Материал отклонён. Дальнейшие этапы заблокированы.";
-  } else {
-    responseText =
-      "Материал отправлен на доработку. Дальнейшие этапы заблокированы.";
+  if (!response.ok || !result.ok) {
+    throw new Error(
+      `Approval Coordinator error: ${result.error || response.status}`
+    );
   }
 
-  await telegram(env, "sendMessage", {
-    chat_id: env.TELEGRAM_CHAT_ID,
-    text: responseText
-  });
-
-  if (action === "approve" && item.status === "pending") {
-    await sendApproval(env, item);
-  }
-
-  return {
-    status: item.status,
-    stage: item.stage,
-    item_id: item.id
-  };
+  return result;
 }
 
 export default {
   async fetch(request, env) {
     if (request.method === "GET") {
-      return new Response("OSINT Editorial Gateway is running.");
+      return new Response(
+        "OSINT Editorial Gateway is running."
+      );
     }
 
     if (request.method !== "POST") {
-      return new Response("Method not allowed", { status: 405 });
+      return new Response("Method not allowed", {
+        status: 405
+      });
     }
 
-    const secret = request.headers.get(
+    const suppliedSecret = request.headers.get(
       "X-Telegram-Bot-Api-Secret-Token"
     );
 
     if (
-      !secret ||
-      secret !== env.TELEGRAM_WEBHOOK_SECRET
+      !suppliedSecret ||
+      suppliedSecret !== env.TELEGRAM_WEBHOOK_SECRET
     ) {
-      return new Response("Unauthorized", { status: 401 });
+      return new Response("Unauthorized", {
+        status: 401
+      });
+    }
+
+    let update;
+
+    try {
+      update = await request.json();
+    } catch {
+      return new Response("Invalid JSON", {
+        status: 400
+      });
     }
 
     try {
-      const update = await request.json();
-
       if (update.message) {
         const message = update.message;
 
-        const chatId = String(message.chat?.id || "");
-        const userId = String(message.from?.id || "");
+        const chatId = String(
+          message.chat?.id ?? ""
+        );
 
-        const authorized =
+        const userId = String(
+          message.from?.id ?? ""
+        );
+
+        const allowed =
           chatId === String(env.TELEGRAM_CHAT_ID) &&
           userId === String(env.TELEGRAM_CHAT_ID) &&
           message.chat?.type === "private";
 
-        if (authorized && message.text === "/start") {
+        if (allowed && message.text === "/start") {
           await telegram(env, "sendMessage", {
             chat_id: env.TELEGRAM_CHAT_ID,
             text:
               "OSINT Editorial подключён.\n" +
               "Система согласований готова."
           });
-        }
-
-        if (authorized && message.text === "/test") {
-          const key = "item:test001";
-          const raw = await env.EDITORIAL_DATA.get(key);
-
-          let item = raw
-            ? JSON.parse(raw)
-            : {
-                id: "test001",
-                content:
-                  "ТЕСТОВАЯ ТЕМА: Как проверить цифровой след компании с помощью OSINT"
-              };
-
-          item.stage = "topic";
-          item.status = "pending";
-          delete item.approval_id;
-
-          await env.EDITORIAL_DATA.put(
-            key,
-            JSON.stringify(item)
-          );
-
-          await saveEvent(env, {
-            item_id: item.id,
-            stage: "topic",
-            action: "test_reset",
-            user_id: userId
+        } else if (
+          allowed &&
+          message.text === "/test"
+        ) {
+          await callCoordinator(env, "/test", {
+            user_id: userId,
+            chat_id: chatId
           });
-
-          await sendApproval(env, item);
         }
       }
 
       if (update.callback_query) {
-        const id = env.APPROVAL_COORDINATOR.idFromName(
-          "osint-editorial"
-        );
-
-        const stub = env.APPROVAL_COORDINATOR.get(id);
-
-        const response = await stub.fetch(
-          "https://approval-coordinator/callback",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              callback: update.callback_query
-            })
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error("Approval Coordinator failed");
-        }
+        await callCoordinator(env, "/callback", {
+          callback: update.callback_query
+        });
       }
 
       return new Response("OK");
     } catch (error) {
-      console.error("Webhook processing failed:", error.message);
-      return new Response("Internal error", { status: 500 });
+      console.error(
+        "Webhook processing failed:",
+        error.message
+      );
+
+      return new Response("Internal error", {
+        status: 500
+      });
     }
   }
 };
@@ -342,18 +190,24 @@ export class ApprovalCoordinator {
   constructor(ctx, env) {
     this.ctx = ctx;
     this.env = env;
-    this.queue = Promise.resolve();
   }
 
   async fetch(request) {
     if (request.method !== "POST") {
-      return new Response("Method not allowed", { status: 405 });
+      return new Response("Method not allowed", {
+        status: 405
+      });
     }
 
-    const url = new URL(request.url);
+    const path = new URL(request.url).pathname;
 
-    if (url.pathname !== "/callback") {
-      return new Response("Not found", { status: 404 });
+    if (
+      path !== "/callback" &&
+      path !== "/test"
+    ) {
+      return new Response("Not found", {
+        status: 404
+      });
     }
 
     let payload;
@@ -361,52 +215,417 @@ export class ApprovalCoordinator {
     try {
       payload = await request.json();
     } catch {
-      return new Response("Invalid JSON", { status: 400 });
+      return json({
+        ok: false,
+        error: "Invalid JSON"
+      }, 400);
     }
 
-    const callback = payload?.callback;
+    try {
+      const result =
+        path === "/test"
+          ? await this.handleTest(payload)
+          : await this.handleCallback(payload);
 
-    if (!callback?.id) {
-      return new Response("Missing callback ID", { status: 400 });
+      // Сначала гарантируем наличие повторной попытки,
+      // затем пробуем отправить накопленные сообщения.
+      await this.ctx.storage.setAlarm(
+        Date.now() + OUTBOX_RETRY_MS
+      );
+
+      await this.flushOutbox();
+
+      return json(result);
+    } catch (error) {
+      console.error(
+        "Coordinator error:",
+        error.message
+      );
+
+      return json({
+        ok: false,
+        error: "Processing failed"
+      }, 500);
     }
+  }
 
-    const task = this.queue.then(async () => {
-      const processedKey = `callback:${callback.id}`;
+  async enqueue(txn, method, data) {
+    const id = crypto.randomUUID();
 
-      const processed = await this.ctx.storage.get(processedKey);
+    await txn.put(`outbox:${id}`, {
+      method,
+      data,
+      created_at: new Date().toISOString()
+    });
+  }
 
-      if (processed) {
-        return {
-          ok: true,
-          duplicate: true
-        };
+  async addEvent(txn, event) {
+    const id = crypto.randomUUID();
+
+    await txn.put(
+      `event:${Date.now()}:${id}`,
+      {
+        ...event,
+        timestamp: new Date().toISOString()
       }
+    );
+  }
 
-      const result = await processCallback(this.env, callback);
+  async handleTest(payload) {
+    const expectedId = String(
+      this.env.TELEGRAM_CHAT_ID
+    );
 
-      await this.ctx.storage.put(processedKey, {
-        processed_at: new Date().toISOString()
-      });
+    if (
+      String(payload.user_id ?? "") !== expectedId ||
+      String(payload.chat_id ?? "") !== expectedId
+    ) {
+      return {
+        ok: false,
+        error: "Unauthorized"
+      };
+    }
+
+    const timestamp = new Date().toISOString();
+
+    const item = {
+      id: "test001",
+      content:
+        "ТЕСТОВАЯ ТЕМА: Как проверить цифровой след компании с помощью OSINT",
+      stage: "topic",
+      status: "pending",
+      history: [],
+      created_at: timestamp,
+      updated_at: timestamp,
+      approval_id: crypto.randomUUID()
+    };
+
+    await this.ctx.storage.transaction(
+      async (txn) => {
+        await txn.put(
+          `item:${item.id}`,
+          item
+        );
+
+        await this.addEvent(txn, {
+          item_id: item.id,
+          stage: "topic",
+          action: "test_created",
+          user_id: expectedId
+        });
+
+        await this.enqueue(
+          txn,
+          "sendMessage",
+          approvalMessage(
+            item,
+            this.env.TELEGRAM_CHAT_ID
+          )
+        );
+      }
+    );
+
+    return {
+      ok: true,
+      status: "pending",
+      item_id: item.id
+    };
+  }
+
+  async handleCallback(payload) {
+    const q = payload.callback;
+
+    if (!q?.id) {
+      return {
+        ok: false,
+        error: "Missing callback ID"
+      };
+    }
+
+    const chatId = String(
+      q.message?.chat?.id ?? ""
+    );
+
+    const userId = String(
+      q.from?.id ?? ""
+    );
+
+    const authorized =
+      chatId === String(this.env.TELEGRAM_CHAT_ID) &&
+      userId === String(this.env.TELEGRAM_CHAT_ID) &&
+      q.message?.chat?.type === "private";
+
+    if (!authorized) {
+      await telegram(
+        this.env,
+        "answerCallbackQuery",
+        {
+          callback_query_id: q.id,
+          text: "Нет доступа"
+        }
+      );
 
       return {
         ok: true,
-        duplicate: false,
-        result
+        status: "unauthorized"
       };
+    }
+
+    const [
+      action,
+      itemId,
+      approvalId
+    ] = String(q.data ?? "").split(":");
+
+    if (
+      !["approve", "reject", "revise"].includes(action) ||
+      !itemId ||
+      !approvalId
+    ) {
+      await telegram(
+        this.env,
+        "answerCallbackQuery",
+        {
+          callback_query_id: q.id,
+          text: "Некорректная кнопка"
+        }
+      );
+
+      return {
+        ok: true,
+        status: "invalid_callback"
+      };
+    }
+
+    const result = await this.ctx.storage.transaction(
+      async (txn) => {
+        const callbackKey = `callback:${q.id}`;
+
+        const processed = await txn.get(callbackKey);
+
+        if (processed) {
+          return {
+            duplicate: true
+          };
+        }
+
+        const itemKey = `item:${itemId}`;
+        const item = await txn.get(itemKey);
+
+        const timestamp = new Date().toISOString();
+
+        if (!item) {
+          await txn.put(callbackKey, {
+            processed_at: timestamp
+          });
+
+          return {
+            status: "not_found"
+          };
+        }
+
+        if (
+          item.status !== "pending" ||
+          item.approval_id !== approvalId ||
+          !STAGES.includes(item.stage)
+        ) {
+          await txn.put(callbackKey, {
+            processed_at: timestamp
+          });
+
+          return {
+            status: "stale"
+          };
+        }
+
+        const currentStage = item.stage;
+
+        item.history = Array.isArray(item.history)
+          ? item.history
+          : [];
+
+        item.history.push({
+          stage: currentStage,
+          action,
+          user_id: userId,
+          approval_id: approvalId,
+          timestamp
+        });
+
+        item.updated_at = timestamp;
+
+        let nextItem = null;
+
+        if (action === "approve") {
+          const index = STAGES.indexOf(
+            currentStage
+          );
+
+          if (index === STAGES.length - 1) {
+            item.status = "publication_approved";
+            item.publication_approved_at = timestamp;
+
+            delete item.approval_id;
+          } else {
+            item.stage = STAGES[index + 1];
+            item.status = "pending";
+            item.approval_id = crypto.randomUUID();
+
+            nextItem = { ...item };
+          }
+        } else {
+          item.status =
+            action === "reject"
+              ? "rejected"
+              : "revision_requested";
+
+          item.decision_at = timestamp;
+
+          delete item.approval_id;
+        }
+
+        await txn.put(itemKey, item);
+
+        await txn.put(callbackKey, {
+          processed_at: timestamp
+        });
+
+        await this.addEvent(txn, {
+          item_id: item.id,
+          stage: currentStage,
+          action,
+          user_id: userId,
+          callback_id: q.id
+        });
+
+        const acknowledgement =
+          action === "approve"
+            ? (
+                item.status === "publication_approved"
+                  ? "ФИНАЛЬНОЕ РАЗРЕШЕНИЕ ПОЛУЧЕНО. Публикация одобрена."
+                  : `Этап «${STAGE_NAMES[currentStage]}» одобрен.`
+              )
+            : (
+                action === "reject"
+                  ? "Материал отклонён. Дальнейшие этапы заблокированы."
+                  : "Материал отправлен на доработку. Дальнейшие этапы заблокированы."
+              );
+
+        await this.enqueue(
+          txn,
+          "answerCallbackQuery",
+          {
+            callback_query_id: q.id,
+            text: "Решение сохранено"
+          }
+        );
+
+        await this.enqueue(
+          txn,
+          "sendMessage",
+          {
+            chat_id: this.env.TELEGRAM_CHAT_ID,
+            text: acknowledgement
+          }
+        );
+
+        if (nextItem) {
+          await this.enqueue(
+            txn,
+            "sendMessage",
+            approvalMessage(
+              nextItem,
+              this.env.TELEGRAM_CHAT_ID
+            )
+          );
+        }
+
+        return {
+          status: item.status,
+          stage: item.stage,
+          item_id: item.id,
+          current_stage: currentStage,
+          action
+        };
+      }
+    );
+
+    if (result.duplicate) {
+      await telegram(
+        this.env,
+        "answerCallbackQuery",
+        {
+          callback_query_id: q.id,
+          text: "Это решение уже обработано"
+        }
+      );
+
+      return {
+        ok: true,
+        duplicate: true
+      };
+    }
+
+    if (
+      result.status === "stale" ||
+      result.status === "not_found"
+    ) {
+      await telegram(
+        this.env,
+        "answerCallbackQuery",
+        {
+          callback_query_id: q.id,
+          text:
+            result.status === "stale"
+              ? "Кнопка устарела или решение уже принято"
+              : "Материал не найден"
+        }
+      );
+
+      return {
+        ok: true,
+        status: result.status
+      };
+    }
+
+    return {
+      ok: true,
+      status: result.status,
+      stage: result.stage,
+      item_id: result.item_id
+    };
+  }
+
+  async flushOutbox() {
+    const messages = await this.ctx.storage.list({
+      prefix: "outbox:"
     });
 
-    this.queue = task.catch(() => {});
+    for (const [key, message] of messages) {
+      try {
+        await telegram(
+          this.env,
+          message.method,
+          message.data
+        );
 
-    try {
-      const result = await task;
-      return Response.json(result);
-    } catch (error) {
-      console.error("Coordinator processing failed:", error.message);
+        await this.ctx.storage.delete(key);
+      } catch (error) {
+        console.error(
+          "Outbox delivery failed:",
+          error.message
+        );
 
-      return Response.json(
-        { ok: false, error: "Processing failed" },
-        { status: 500 }
-      );
+        await this.ctx.storage.setAlarm(
+          Date.now() + OUTBOX_RETRY_MS
+        );
+
+        return;
+      }
     }
+  }
+
+  async alarm() {
+    await this.flushOutbox();
   }
 }
