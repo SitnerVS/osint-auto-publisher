@@ -1,0 +1,37 @@
+
+name: Telegram Connection Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  telegram-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send test message to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Telegram secrets are missing"
+            exit 1
+          fi
+
+          RESPONSE=$(curl -fsS \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=OSINT Editorial: Telegram connection successful. GitHub Actions is connected.")
+
+          echo "$RESPONSE" | python3 -c '
+          import json, sys
+          result = json.load(sys.stdin)
+          if not result.get("ok"):
+              print("Telegram API returned an error")
+              sys.exit(1)
+          print("Telegram message sent successfully")
+          '
