@@ -1,0 +1,14 @@
+
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "osint-telegram-gateway-staging",
+  "main": "worker/src/index.js",
+  "compatibility_date": "2026-11-12",
+  "workers_dev": true,
+  "kv_namespaces": [
+    {
+      "binding": "EDITORIAL_DATA",
+      "id": "aed1626849ee4364bc3b3d008db2916a"
+    }
+  ]
+}
