@@ -310,3 +310,15 @@ export default {
     }
   }
 };
+
+
+export class ApprovalCoordinator {
+  constructor(ctx, env) {
+    this.ctx = ctx;
+    this.env = env;
+  }
+
+  async fetch(request) {
+    return new Response("Approval Coordinator is ready.");
+  }
+}
