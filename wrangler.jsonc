@@ -10,5 +10,19 @@
       "binding": "EDITORIAL_DATA",
       "id": "aed1626849ee4364bc3b3d008db2916a"
     }
-  ]
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "APPROVAL_COORDINATOR",
+        "class_name": "ApprovalCoordinator"
+      }
+    ]
+  },
+  "exports": {
+    "ApprovalCoordinator": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
 }
