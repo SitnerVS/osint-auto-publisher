@@ -1,0 +1,20 @@
+{
+  "account": "OSINT",
+  "language": "ru",
+  "timezone": "Europe/Warsaw",
+  "posts_per_day": 2,
+  "content_formats": [
+    "image",
+    "carousel",
+    "reels"
+  ],
+  "visual_style": {
+    "background": "#0B0D0F",
+    "surface": "#15181B",
+    "text": "#E7E9EA",
+    "secondary": "#858B91",
+    "accent": "#FF5A36",
+    "verified": "#A7D65C"
+  },
+  "hashtags": false
+}
