@@ -1,0 +1,19 @@
+
+name: OSINT Auto Publisher
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publisher:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Start automation
+        run: |
+          echo "OSINT Auto Publisher started"
+          echo "Cloud runner is working"
+          echo "Ready for content generation"
