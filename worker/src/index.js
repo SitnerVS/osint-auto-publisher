@@ -399,6 +399,57 @@ async function geminiGenerate(env, prompt, options = {}) {
   return answer;
 }
 
+async function reviewGeneratedVisual(env, imageBytes, item, slide, plan) {
+  const binary = Array.from(imageBytes, byte => String.fromCharCode(byte)).join("");
+  const imageBase64 = btoa(binary);
+  const reviewPrompt =
+    "Ты независимый визуальный контролёр премиального OSINTNER. Ты видишь приложенное реальное изображение, а не только его описание. Сопоставь изображение с темой и проверь каждый критерий. " +
+    "Верни ТОЛЬКО JSON без markdown с boolean полями: relevant, vector_style, palette, no_text, geometry, single_composition, pass; и строковым reason. " +
+    "relevant=true только если главный объект и действие изображения однозначно относятся к теме. vector_style=true только если это действительно плоская редакционная векторная графика с чёткими контурами и геометрическими формами, без фото, CGI и 3D. " +
+    "palette=true только если доминируют #0B0D0F/#15181B, светлые #E7E9EA, вторичные #858B91, акцент #FF5A36 и максимум редкий #A7D65C; заметные посторонние цвета означают false. " +
+    "no_text=true только если на изображении нет вообще никаких букв, цифр, слов, псевдотекста, надписей, водяных знаков, логотипов или текстоподобных штрихов. " +
+    "geometry=true только если объекты целостны, не сливаются, не деформированы и не имеют невозможной геометрии. single_composition=true только если это одна законченная композиция одного изображения, а не коллаж, серия или набор карточек. " +
+    "pass=true только если ВСЕ шесть критериев true. При сомнении ставь false. Не засчитывай соответствие только потому, что prompt обещает нужный стиль. " +
+    "ТЕМА: " + String(item?.title || "") +
+    " КАТЕГОРИЯ: " + String(item?.category || "") +
+    " ТЕКСТ ПОСТА: " + String(item?.text_content || item?.content || "").slice(0, 3200) +
+    " ЗАДАННАЯ КОНЦЕПЦИЯ: " + String(plan?.concept || "") +
+    " ОПИСАНИЕ ИЗОБРАЖЕНИЯ: " + String(slide?.prompt || "").slice(0, 1800);
+  const response = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": env.GEMINI_API_KEY
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: reviewPrompt },
+            { inline_data: { mime_type: "image/png", data: imageBase64 } }
+          ]
+        }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 350 }
+      })
+    }
+  );
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error("Visual QA API " + response.status + ": " + String(result.error?.message || "request failed"));
+  const raw = result.candidates?.[0]?.content?.parts?.map(part => part.text || "").join("").trim() || "";
+  const first = raw.indexOf("{");
+  const last = raw.lastIndexOf("}");
+  if (first < 0 || last <= first) throw new Error("Visual QA returned invalid JSON");
+  const review = JSON.parse(raw.slice(first, last + 1));
+  const required = ["relevant", "vector_style", "palette", "no_text", "geometry", "single_composition"];
+  for (const key of required) {
+    if (typeof review[key] !== "boolean") throw new Error("Visual QA omitted boolean criterion: " + key);
+  }
+  review.pass = review.pass === true && required.every(key => review[key] === true);
+  review.checked_at = new Date().toISOString();
+  return review;
+}
+
 // ======================================================
 // APPROVAL MESSAGE
 // ======================================================
