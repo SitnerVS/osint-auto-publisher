@@ -2149,60 +2149,64 @@ export class ApprovalCoordinator {
 
   async publishApprovedThreadsPost(itemId) {
     const itemKey = `item:${itemId}`;
-    const item = await this.ctx.storage.get(itemKey);
+    const reservation = await this.ctx.storage.transaction(async txn => {
+      const item = await txn.get(itemKey);
+      if (!item || item.status !== "publication_approved") return { skipped: true };
+      if (item.threads_publication_status === "published") return { duplicate: true };
+      if (["creating", "publishing", "publish_unknown", "create_unknown"].includes(item.threads_publication_status)) {
+        return { pending_review: true, status: item.threads_publication_status };
+      }
+      if (item.threads_publication_status === "created" && item.threads_container_id) {
+        return { resume: true, item };
+      }
+      item.threads_publication_status = "creating";
+      item.threads_publication_started_at = new Date().toISOString();
+      await txn.put(itemKey, item);
+      return { reserved: true, item };
+    });
 
-    if (!item || item.status !== "publication_approved") {
-      return { ok: false, skipped: true };
-    }
-
-    if (item.threads_publication_status === "published") {
-      return { ok: true, duplicate: true };
-    }
-
-    if (["creating", "publishing"].includes(item.threads_publication_status)) {
+    if (reservation.skipped) return { ok: false, skipped: true };
+    if (reservation.duplicate) return { ok: true, duplicate: true };
+    if (reservation.pending_review) {
       await telegram(this.env, "sendMessage", {
         chat_id: this.env.TELEGRAM_CHAT_ID,
-        text: "Публикация в Threads уже была начата, но её итог не подтверждён. Автоматический повтор отключён, чтобы не создать дубликат. Материал: " + itemId
+        text: "Публикация уже начата или её результат требует проверки вручную. Автоматический повтор заблокирован во избежание дубля. Материал: " + itemId + " (" + reservation.status + ")"
       });
       return { ok: false, pending_review: true };
     }
 
+    let item = reservation.item;
     const token = await this.ctx.storage.get("threads:oauth:token");
     if (!token?.access_token || !token?.user_id) {
+      await this.ctx.storage.put(itemKey, { ...item, threads_publication_status: "failed", threads_publication_error: "Threads account is not connected" });
       await telegram(this.env, "sendMessage", {
         chat_id: this.env.TELEGRAM_CHAT_ID,
-        text: "Финальное одобрение получено, но публикация в Threads не выполнена: аккаунт не подключён. Материал: " + itemId
+        text: "Финальное одобрение получено, но публикация не выполнена: аккаунт Threads не подключён. Материал: " + itemId
       });
       return { ok: false, error: "Threads account is not connected" };
     }
-
     if (Number(token.expires_at || 0) <= Date.now()) {
+      await this.ctx.storage.put(itemKey, { ...item, threads_publication_status: "failed", threads_publication_error: "Threads access token expired" });
       await telegram(this.env, "sendMessage", {
         chat_id: this.env.TELEGRAM_CHAT_ID,
-        text: "Финальное одобрение получено, но токен Threads истёк. Нужно переподключить аккаунт. Материал: " + itemId
+        text: "Финальное одобрение получено, но токен Threads истёк. Переподключи аккаунт. Материал: " + itemId
       });
       return { ok: false, error: "Threads access token expired" };
     }
 
     const fullText = String(item.text_content || "").trim();
-    if (!fullText) {
+    if (!fullText || new TextEncoder().encode(fullText).length > 500) {
+      await this.ctx.storage.put(itemKey, { ...item, threads_publication_status: "failed", threads_publication_error: "Threads caption must contain 1–500 UTF-8 bytes" });
       await telegram(this.env, "sendMessage", {
         chat_id: this.env.TELEGRAM_CHAT_ID,
-        text: "Финальное одобрение получено, но текст материала не найден. В Threads ничего не опубликовано. Материал: " + itemId
+        text: "Публикация остановлена: подпись должна содержать не более 500 байт в UTF-8. Материал: " + itemId
       });
-      return { ok: false, error: "Approved item has no text_content" };
-    }
-
-    if ([...fullText].length > 500) {
-      await telegram(this.env, "sendMessage", {
-        chat_id: this.env.TELEGRAM_CHAT_ID,
-        text: "Публикация остановлена: текст поста превышает лимит Threads в 500 символов. Сократи текст и отправь материал на повторное согласование. Материал: " + itemId
-      });
-      return { ok: false, error: "Threads image caption exceeds 500 characters" };
+      return { ok: false, error: "Threads caption exceeds 500-byte limit" };
     }
 
     const image = Array.isArray(item.visual_assets) ? item.visual_assets[0] : null;
     if (!image?.url || !/^https:\/\//i.test(image.url)) {
+      await this.ctx.storage.put(itemKey, { ...item, threads_publication_status: "failed", threads_publication_error: "Approved item has no public image asset" });
       await telegram(this.env, "sendMessage", {
         chat_id: this.env.TELEGRAM_CHAT_ID,
         text: "Публикация остановлена: у материала нет одного публичного изображения. Ничего не опубликовано. Материал: " + itemId
@@ -2210,54 +2214,99 @@ export class ApprovalCoordinator {
       return { ok: false, error: "Approved item has no public image asset" };
     }
 
-    await this.ctx.storage.put(itemKey, {
-      ...item,
-      threads_publication_status: "creating",
-      threads_publication_started_at: new Date().toISOString()
-    });
-
     try {
-      const createUrl = new URL(`https://graph.threads.net/v1.0/${encodeURIComponent(token.user_id)}/threads`);
-      const createForm = new URLSearchParams({
-        media_type: "IMAGE",
-        image_url: image.url,
-        text: fullText,
-        alt_text: String(image.alt_text || item.title || "Редакционная векторная иллюстрация OSINTNER").slice(0, 1000),
-        access_token: token.access_token
-      });
+      let containerId = reservation.resume ? String(item.threads_container_id) : "";
+      if (!containerId) {
+        const createUrl = new URL(`https://graph.threads.net/v1.0/${encodeURIComponent(token.user_id)}/threads`);
+        const createForm = new URLSearchParams({
+          media_type: "IMAGE",
+          image_url: image.url,
+          text: fullText,
+          alt_text: String(image.alt_text || item.title || "Редакционная векторная иллюстрация OSINTNER").slice(0, 1000),
+          access_token: token.access_token
+        });
+        const createResponse = await fetch(createUrl.toString(), {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: createForm
+        });
+        const createResult = await createResponse.json().catch(() => ({}));
+        if (!createResponse.ok || !createResult.id) {
+          const message = createResult.error?.message || "Threads image container creation failed (" + createResponse.status + ")";
+          await this.ctx.storage.put(itemKey, {
+            ...item,
+            threads_publication_status: "create_unknown",
+            threads_publication_error: String(message).slice(0, 500),
+            threads_publication_failed_at: new Date().toISOString()
+          });
+          throw new Error(message);
+        }
+        containerId = String(createResult.id);
+        item = {
+          ...item,
+          threads_publication_status: "created",
+          threads_container_id: containerId,
+          threads_publication_started_at: new Date().toISOString()
+        };
+        await this.ctx.storage.put(itemKey, item);
+      }
 
-      const createResponse = await fetch(createUrl.toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: createForm
-      });
-      const createResult = await createResponse.json().catch(() => ({}));
+      let containerStatus = "";
+      let containerError = "";
+      for (let attempt = 0; attempt < 15; attempt++) {
+        const statusUrl = new URL(`https://graph.threads.net/v1.0/${encodeURIComponent(containerId)}`);
+        statusUrl.searchParams.set("fields", "status,error_message");
+        statusUrl.searchParams.set("access_token", token.access_token);
+        const statusResponse = await fetch(statusUrl.toString());
+        const statusResult = await statusResponse.json().catch(() => ({}));
+        if (!statusResponse.ok) {
+          throw new Error(statusResult.error?.message || "Threads container status check failed (" + statusResponse.status + ")");
+        }
+        containerStatus = String(statusResult.status || "");
+        containerError = String(statusResult.error_message || "");
+        if (containerStatus === "FINISHED") break;
+        if (["ERROR", "EXPIRED", "PUBLISHED"].includes(containerStatus)) {
+          throw new Error("Threads container status " + containerStatus + (containerError ? ": " + containerError : ""));
+        }
+        if (attempt < 14) await new Promise(resolve => setTimeout(resolve, 2000));
+      }
 
-      if (!createResponse.ok || !createResult.id) {
-        throw new Error(createResult.error?.message || "Threads image container creation failed (" + createResponse.status + ")");
+      if (containerStatus !== "FINISHED") {
+        await this.ctx.storage.put(itemKey, {
+          ...item,
+          threads_publication_status: "created",
+          threads_container_id: containerId,
+          threads_publication_error: "Image container is still processing; retry can resume this container"
+        });
+        await telegram(this.env, "sendMessage", {
+          chat_id: this.env.TELEGRAM_CHAT_ID,
+          text: "Threads ещё обрабатывает изображение. Контейнер сохранён; повторная отправка нового изображения не выполняется. Повтори финальную проверку позже. Материал: " + itemId
+        });
+        return { ok: false, pending_processing: true, container_id: containerId };
       }
 
       await this.ctx.storage.put(itemKey, {
         ...item,
-        threads_publication_status: "created",
-        threads_container_id: String(createResult.id),
-        threads_publication_started_at: new Date().toISOString()
+        threads_publication_status: "publishing",
+        threads_container_id: containerId,
+        threads_publish_started_at: new Date().toISOString()
       });
 
       const publishUrl = new URL(`https://graph.threads.net/v1.0/${encodeURIComponent(token.user_id)}/threads_publish`);
-      publishUrl.searchParams.set("creation_id", String(createResult.id));
+      publishUrl.searchParams.set("creation_id", containerId);
       publishUrl.searchParams.set("access_token", token.access_token);
-
-      await this.ctx.storage.put(itemKey, {
-        ...(await this.ctx.storage.get(itemKey)),
-        threads_publication_status: "publishing"
-      });
-
       const publishResponse = await fetch(publishUrl.toString(), { method: "POST" });
       const publishResult = await publishResponse.json().catch(() => ({}));
-
       if (!publishResponse.ok || !publishResult.id) {
-        throw new Error(publishResult.error?.message || "Threads publish failed (" + publishResponse.status + ")");
+        const message = publishResult.error?.message || "Threads publish failed (" + publishResponse.status + ")";
+        await this.ctx.storage.put(itemKey, {
+          ...item,
+          threads_publication_status: "publish_unknown",
+          threads_container_id: containerId,
+          threads_publication_error: String(message).slice(0, 500),
+          threads_publication_failed_at: new Date().toISOString()
+        });
+        throw new Error(message);
       }
 
       let permalink = "";
@@ -2280,34 +2329,33 @@ export class ApprovalCoordinator {
         threads_publication_status: "published",
         threads_post_id: String(publishResult.id),
         threads_permalink: permalink,
-        threads_published_at: new Date().toISOString()
+        threads_published_at: new Date().toISOString(),
+        threads_publication_error: ""
       });
-
       await telegram(this.env, "sendMessage", {
         chat_id: this.env.TELEGRAM_CHAT_ID,
-        text: "ПОСТ ОПУБЛИКОВАН В THREADS\nАккаунт: @" + String(token.username || "osintner") +
+        text: "ПОСТ ОПУБЛИКОВАН В THREADS\nАккаунт: @" + String(token.username || "OSINTNER") +
           "\nМатериал: " + itemId +
           (permalink ? "\nСсылка: " + permalink : "\nID публикации: " + String(publishResult.id))
       });
-
       return { ok: true, post_id: String(publishResult.id), permalink };
     } catch (error) {
       const latestItem = await this.ctx.storage.get(itemKey);
-      await this.ctx.storage.put(itemKey, {
-        ...latestItem,
-        threads_publication_status: "failed",
-        threads_publication_error: String(error.message || error).slice(0, 500),
-        threads_publication_failed_at: new Date().toISOString()
-      });
-
+      if (!["create_unknown", "publish_unknown"].includes(latestItem?.threads_publication_status)) {
+        await this.ctx.storage.put(itemKey, {
+          ...latestItem,
+          threads_publication_status: "failed",
+          threads_publication_error: String(error.message || error).slice(0, 500),
+          threads_publication_failed_at: new Date().toISOString()
+        });
+      }
       console.error("Threads publishing failed:", error.message);
       await telegram(this.env, "sendMessage", {
         chat_id: this.env.TELEGRAM_CHAT_ID,
-        text: "Финальное одобрение получено, но публикация в Threads завершилась ошибкой.\nМатериал: " + itemId +
+        text: "Финальное одобрение получено, но публикация в Threads не завершилась.\nМатериал: " + itemId +
           "\nПричина: " + String(error.message || error).slice(0, 700) +
-          "\nАвтоматический повтор отключён во избежание дубликатов."
+          "\nАвтоматический повтор заблокирован, чтобы исключить дубликат. Проверь статус контейнера в Threads."
       });
-
       return { ok: false, error: String(error.message || error) };
     }
   }
