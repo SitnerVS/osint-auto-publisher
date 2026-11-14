@@ -2172,6 +2172,9 @@ export class ApprovalCoordinator {
         return { pending_review: true, status: item.threads_publication_status };
       }
       if (item.threads_publication_status === "created" && item.threads_container_id) {
+        item.threads_publication_status = "creating";
+        item.threads_resume_started_at = new Date().toISOString();
+        await txn.put(itemKey, item);
         return { resume: true, item };
       }
       item.threads_publication_status = "creating";
