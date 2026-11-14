@@ -1098,6 +1098,123 @@ export class ApprovalCoordinator {
   }
 
   // ==================================================
+  // ALTERNATIVE TOPIC AFTER REJECTION
+  // ==================================================
+
+  async generateAlternativeTopic(itemId) {
+    const itemKey = `item:${itemId}`;
+    const item = await this.ctx.storage.get(itemKey);
+
+    if (!item || item.status !== "generating_alternative_topic") {
+      return { ok: false, skipped: true };
+    }
+
+    const rejectedTopics = Array.isArray(item.rejected_topics)
+      ? item.rejected_topics
+      : [];
+
+    const prompt =
+      `Ты редактор профессионального расследовательского медиа OSINT Editorial.\\n\\n` +
+      `Предложи ОДНУ новую тему взамен отклонённой. Это должна быть другая содержательная тема, а не перефразирование предыдущей.\\n\\n` +
+      `КАТЕГОРИЯ: ${item.category || "OSINT"}\\n` +
+      `ОТКЛОНЁННЫЕ ТЕМЫ — НЕ ПОВТОРЯТЬ: ${rejectedTopics.join(" | ")}\\n\\n` +
+      `Требования:\\n` +
+      `- Язык: русский.\\n` +
+      `- Конкретная, практически полезная тема для профессиональной аудитории.\\n` +
+      `- Для OSINT используй законные сценарии анализа открытых источников.\\n` +
+      `- Не обещай достоверную идентификацию или атрибуцию, если методы дают только вероятностные признаки.\\n` +
+      `- Не выдумывай события, компании, статистику и расследования.\\n` +
+      `- Не повторяй ни одну из отклонённых тем даже другими словами.\\n` +
+      `- Верни только название темы, без пояснений и нумерации.`;
+
+    try {
+      const generatedTopic = await geminiGenerate(
+        this.env,
+        prompt,
+        { task: "topic" }
+      );
+
+      const title = generatedTopic
+        .replace(/^["«]|["»]$/g, "")
+        .trim();
+
+      if (!title) {
+        throw new Error("Gemini generated an empty alternative topic");
+      }
+
+      const timestamp = new Date().toISOString();
+
+      await this.ctx.storage.transaction(async (txn) => {
+        const current = await txn.get(itemKey);
+
+        if (!current || current.status !== "generating_alternative_topic") {
+          return;
+        }
+
+        current.title = title;
+        current.content = `КАТЕГОРИЯ: ${current.category}\\n\\nТЕМА: ${title}`;
+        current.stage = "topic";
+        current.status = "pending";
+        current.approval_id = crypto.randomUUID();
+        current.updated_at = timestamp;
+        current.alternative_topic_count =
+          Number(current.alternative_topic_count || 0) + 1;
+
+        await txn.put(itemKey, current);
+
+        await this.addEvent(txn, {
+          item_id: current.id,
+          stage: "topic",
+          action: "ai_alternative_topic_generated",
+          category: current.category,
+          title,
+          user_id: String(this.env.TELEGRAM_CHAT_ID || "")
+        });
+
+        await this.enqueue(
+          txn,
+          "sendMessage",
+          {
+            chat_id: this.env.TELEGRAM_CHAT_ID,
+            text: "Предлагаю другой вариант темы. Проверь его:",
+          }
+        );
+
+        await this.enqueue(
+          txn,
+          "sendMessage",
+          approvalMessage(current, this.env.TELEGRAM_CHAT_ID)
+        );
+      });
+
+      await this.flushOutbox();
+
+      return { ok: true, status: "pending", item_id: itemId, title };
+    } catch (error) {
+      console.error("Alternative topic generation failed:", error.message);
+
+      await this.ctx.storage.transaction(async (txn) => {
+        const current = await txn.get(itemKey);
+        if (!current || current.status !== "generating_alternative_topic") {
+          return;
+        }
+
+        current.status = "alternative_topic_generation_failed";
+        current.updated_at = new Date().toISOString();
+        await txn.put(itemKey, current);
+
+        await this.enqueue(txn, "sendMessage", {
+          chat_id: this.env.TELEGRAM_CHAT_ID,
+          text: "Не удалось автоматически подготовить другую тему. Отправь /generate, чтобы создать новый материал."
+        });
+      });
+
+      await this.flushOutbox();
+      return { ok: false, error: "alternative_topic_generation_failed" };
+    }
+  }
+
+  // ==================================================
   // TEST MATERIAL
   // ==================================================
 
@@ -1622,6 +1739,15 @@ export class ApprovalCoordinator {
           nextItem = { ...item };
         }
 
+      } else if (action === "reject" && currentStage === "topic" && !item.is_test) {
+        item.rejected_topics = Array.isArray(item.rejected_topics)
+          ? item.rejected_topics
+          : [];
+        item.rejected_topics.push(item.title);
+        item.status = "generating_alternative_topic";
+        item.decision_at = timestamp;
+        delete item.approval_id;
+
       } else {
         item.status =
           action === "reject"
@@ -1658,9 +1784,11 @@ export class ApprovalCoordinator {
                     : `Этап «${STAGE_NAMES[currentStage]}» одобрен.`
             )
           : (
-              action === "reject"
-                ? "Материал отклонён. Дальнейшие этапы заблокированы."
-                : "Материал отправлен на доработку. Дальнейшие этапы заблокированы."
+              action === "reject" && currentStage === "topic" && !item.is_test
+                ? "Тема отклонена. Подбираю другой вариант..."
+                : action === "reject"
+                  ? "Материал отклонён. Дальнейшие этапы заблокированы."
+                  : "Материал отправлен на доработку. Дальнейшие этапы заблокированы."
             );
 
       await this.enqueue(txn, "answerCallbackQuery", {
@@ -1728,6 +1856,11 @@ export class ApprovalCoordinator {
     if (result.status === "generating_visual") {
       await this.flushOutbox();
       await this.runVisualGeneration(result.item_id);
+    }
+
+    if (result.status === "generating_alternative_topic") {
+      await this.flushOutbox();
+      await this.generateAlternativeTopic(result.item_id);
     }
 
     if (result.status === "publication_approved") {
