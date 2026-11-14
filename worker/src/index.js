@@ -217,7 +217,7 @@ async function telegramSendPhoto(env, chatId, imageBytes, caption) {
   );
 
   const response = await fetch(
-    \`https://api.telegram.org/bot\${env.TELEGRAM_BOT_TOKEN}/sendPhoto\`,
+    `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`,
     {
       method: "POST",
       body: form
@@ -229,12 +229,12 @@ async function telegramSendPhoto(env, chatId, imageBytes, caption) {
   try {
     result = await response.json();
   } catch {
-    throw new Error(\`Telegram sendPhoto returned invalid JSON: \${response.status}\`);
+    throw new Error(`Telegram sendPhoto returned invalid JSON: ${response.status}`);
   }
 
   if (!response.ok || !result.ok) {
     throw new Error(
-      \`Telegram sendPhoto failed: \${result.description || response.status}\`
+      `Telegram sendPhoto failed: ${result.description || response.status}`
     );
   }
 
@@ -598,7 +598,7 @@ export default {
               chat_id: chatId,
               text:
                 "Не удалось сгенерировать тестовое изображение.\n\n" +
-                \`Причина: \${String(error.message || error).slice(0, 1200)}\`
+                `Причина: ${String(error.message || error).slice(0, 1200)}`
             });
           }
         }
