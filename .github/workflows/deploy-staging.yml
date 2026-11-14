@@ -29,6 +29,11 @@ jobs:
           python -m json.tool config/settings.json > /dev/null
           echo "Settings JSON is valid"
 
+      - name: Validate JavaScript syntax
+        run: |
+          node --check worker/src/index.js
+          echo "JavaScript syntax is valid"
+
       - name: Deploy to Cloudflare Staging
         uses: cloudflare/wrangler-action@v4
         with:
