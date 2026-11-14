@@ -64,7 +64,8 @@ async function publishInstagram(env, token, text, imageUrl) {
     image_url: imageUrl,
     caption: text,
     access_token: token.access_token,
-    alt_text: "Редакционная иллюстрация к короткой юмористической публикации"
+    alt_text: "Иллюстрация к публикации: " + text,
+    is_ai_generated: "true"
   });
   const createResponse = await fetch(createUrl.toString(), {
     method: "POST",
