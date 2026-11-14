@@ -1,20 +1,129 @@
+
 {
-  "account": "OSINT",
+  "account": "OSINTNER",
   "language": "ru",
-  "timezone": "Europe/Warsaw",
-  "posts_per_day": 2,
-  "content_formats": [
-    "image",
-    "carousel",
-    "reels"
-  ],
-  "visual_style": {
-    "background": "#0B0D0F",
-    "surface": "#15181B",
-    "text": "#E7E9EA",
-    "secondary": "#858B91",
-    "accent": "#FF5A36",
-    "verified": "#A7D65C"
+  "timezone": "Europe/Moscow",
+
+  "publishing": {
+    "feed_posts_per_day": 2,
+    "feed_schedule": [
+      "09:00",
+      "18:30"
+    ],
+    "reels_per_day": 3,
+    "reels_schedule": [],
+    "schedule_timezone": "Europe/Moscow"
   },
-  "hashtags": false
+
+  "content_strategy": {
+    "topic_rotation": [
+      "OSINT",
+      "Комплаенс",
+      "Антифрод"
+    ],
+    "rotation_mode": "sequential",
+    "osint_content_style": "Нарративные истории и примеры реального применения OSINT в жизни и бизнесе",
+    "require_real_world_examples": true,
+    "require_fact_checking": true,
+    "require_sources": true,
+    "hashtags": false
+  },
+
+  "content_formats": {
+    "feed_posts": {
+      "enabled": true,
+      "aspect_ratio": "4:5"
+    },
+    "carousels": {
+      "enabled": true,
+      "aspect_ratio": "4:5",
+      "individual_slide_descriptions": true
+    },
+    "reels": {
+      "enabled": true,
+      "per_day": 3,
+      "aspect_ratio": "9:16",
+      "animation": [
+        "parallax",
+        "minimal"
+      ],
+      "unique_images_required": true,
+      "simple_production": true
+    }
+  },
+
+  "brand_identity": {
+    "brand_positioning": "Premium investigative editorial media about OSINT, digital traces, corporate investigations and anti-fraud",
+    "visual_keywords": [
+      "investigation",
+      "corporate intelligence",
+      "financial fraud",
+      "digital traces",
+      "open source intelligence",
+      "business investigations",
+      "forensic journalism",
+      "anti-fraud",
+      "evidence"
+    ],
+    "visual_principle": "Every image should look like the cover of a premium investigative documentary or business crime investigation.",
+    "branding_rules": [
+      "Never display the text OSINTNER inside generated images",
+      "Never display the brand name or brand lettering",
+      "Never generate a brand logo or brand symbol",
+      "Never add watermarks",
+      "Never add social media handles",
+      "Never add decorative brand signatures",
+      "Keep the image visually clean and editorial",
+      "Use only the headline, subtitle and content-related text requested for the specific image"
+    ]
+  },
+
+  "typography": {
+    "style": "bold modern editorial sans-serif",
+    "headline_style": "extra bold Russian sans-serif",
+    "headline_weight": "heavy",
+    "headline_color": "#F5F5F5",
+    "highlight_color": "#F26A1B",
+    "subtitle_color": "#F5F5F5",
+    "rules": [
+      "Large readable headline",
+      "White text is dominant",
+      "Highlight selected words in orange",
+      "Short white subtitle",
+      "Thin orange horizontal divider",
+      "Strict left alignment",
+      "No decorative fonts",
+      "No brand name",
+      "No logo",
+      "No watermark",
+      "No unnecessary text"
+    ]
+  },
+
+  "negative_style_prompt": [
+    "OSINTNER text",
+    "OSINTNER logo",
+    "brand name",
+    "brand lettering",
+    "watermark",
+    "social media handle",
+    "brand signature",
+    "cyberpunk",
+    "hacker in hoodie",
+    "matrix green rain",
+    "neon RGB",
+    "futuristic holograms",
+    "sci-fi interface",
+    "warm brown color grading",
+    "golden cinematic lighting",
+    "technical dashboards",
+    "complex HUD",
+    "cartoon",
+    "anime",
+    "plastic CGI",
+    "generic stock photography",
+    "visual clutter"
+  ],
+
+  "consistency_rule": "Preserve the approved OSINTNER visual identity: cold dark navy and blue-gray photographic atmosphere, dramatic corporate documentary photography, bold white Russian headlines, orange highlights and thin orange dividers. Never include OSINTNER text, logo, watermark or brand signature. Only display content-specific text requested for the current image."
 }
