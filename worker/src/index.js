@@ -31,8 +31,6 @@ function isAuthorizedChat(chat, env) {
   );
 }
 
-// Разделение длинного текста на части.
-
 function splitTelegramText(text, limit = TELEGRAM_SAFE_LIMIT) {
   const chars = Array.from(String(text ?? ""));
   const chunks = [];
@@ -44,7 +42,6 @@ function splitTelegramText(text, limit = TELEGRAM_SAFE_LIMIT) {
     }
 
     let cut = limit;
-
     const paragraphBreak = chars.lastIndexOf("\n", limit - 1);
 
     if (paragraphBreak > limit * 0.6) {
@@ -62,6 +59,57 @@ function splitTelegramText(text, limit = TELEGRAM_SAFE_LIMIT) {
   }
 
   return chunks;
+}
+
+function getFinalVisualSummary(visualContent) {
+  if (!visualContent) {
+    return "Визуальная концепция не указана.";
+  }
+
+  const formatMatch = visualContent.match(
+    /ФОРМАТ\s*:\s*([^\n]+)/i
+  );
+
+  const conceptMatch = visualContent.match(
+    /КОНЦЕПЦИЯ\s*:\s*([^\n]+)/i
+  );
+
+  const format = formatMatch?.[1]?.trim() || "См. согласованный визуал";
+  const concept = conceptMatch?.[1]?.trim() || "";
+
+  return [
+    `Формат: ${format}`,
+    concept ? `Концепция: ${concept}` : ""
+  ].filter(Boolean).join("\n");
+}
+
+function getApprovalContent(item) {
+  if (item.stage === "topic") {
+    return item.content || "";
+  }
+
+  if (item.stage === "text") {
+    return item.text_content || item.content || "";
+  }
+
+  if (item.stage === "visual") {
+    return item.visual_content || item.content || "";
+  }
+
+  if (item.stage === "final") {
+    const text = item.text_content || "";
+    const visualSummary = getFinalVisualSummary(
+      item.visual_content
+    );
+
+    return (
+      `${text}\n\n` +
+      `СОГЛАСОВАННЫЙ ВИЗУАЛ\n` +
+      `${visualSummary}`
+    );
+  }
+
+  return item.content || "";
 }
 
 // ======================================================
@@ -115,12 +163,12 @@ async function telegram(env, method, data) {
 // GEMINI AI
 // ======================================================
 
-async function geminiGenerate(env, prompt) {
+async function geminiGenerate(env, prompt, options = {}) {
   if (!env.GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY is not configured");
   }
 
-  console.log("Gemini request started");
+  console.log("Gemini request started:", options.task || "generation");
 
   const response = await fetch(
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
@@ -141,8 +189,8 @@ async function geminiGenerate(env, prompt) {
           }
         ],
         generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 2500
+          temperature: options.temperature ?? 0.7,
+          maxOutputTokens: options.maxOutputTokens ?? 2500
         }
       })
     }
@@ -186,7 +234,7 @@ async function geminiGenerate(env, prompt) {
     throw new Error("Gemini returned an empty response");
   }
 
-  console.log("Gemini generation successful");
+  console.log("Gemini generation successful:", options.task || "generation");
 
   return answer;
 }
@@ -202,7 +250,7 @@ function approvalMessage(item, chatId) {
       `OSINT EDITORIAL\n\n` +
       `Материал: ${item.id}\n` +
       `Этап: ${STAGE_NAMES[item.stage]}\n\n` +
-      `${item.content}\n\n` +
+      `${getApprovalContent(item)}\n\n` +
       `Выбери решение:`,
     reply_markup: {
       inline_keyboard: [
@@ -278,9 +326,6 @@ async function callCoordinator(env, path, payload) {
 
 export default {
   async fetch(request, env) {
-
-    // HEALTH CHECK
-
     if (request.method === "GET") {
       return new Response(
         "OSINT Editorial Gateway is running."
@@ -292,8 +337,6 @@ export default {
         status: 405
       });
     }
-
-    // WEBHOOK SECURITY
 
     const suppliedSecret = request.headers.get(
       "X-Telegram-Bot-Api-Secret-Token"
@@ -359,20 +402,14 @@ export default {
           updateId: update.update_id,
           command: command || "no_command",
           chatType: message.chat?.type,
-          chatIdPresent: Boolean(chatId),
-          userIdPresent: Boolean(userId),
           chatAllowed: allowed,
-          chatIdConfigured: Boolean(env.TELEGRAM_CHAT_ID),
           geminiKeyConfigured: Boolean(env.GEMINI_API_KEY)
         });
 
         if (!allowed) {
           console.error("MESSAGE REJECTED: unauthorized chat");
-
           return new Response("OK");
         }
-
-        // /START
 
         if (command === "/start") {
           await telegram(env, "sendMessage", {
@@ -389,8 +426,6 @@ export default {
           });
         }
 
-        // /ID
-
         else if (command === "/id") {
           await telegram(env, "sendMessage", {
             chat_id: chatId,
@@ -403,8 +438,6 @@ export default {
               `Coordinator: ${env.APPROVAL_COORDINATOR ? "configured" : "missing"}`
           });
         }
-
-        // /SETTINGS
 
         else if (command === "/settings") {
           await telegram(env, "sendMessage", {
@@ -421,8 +454,6 @@ export default {
           });
         }
 
-        // /TEST
-
         else if (command === "/test") {
           console.log("Approval test started");
 
@@ -431,8 +462,6 @@ export default {
             chat_id: chatId
           });
         }
-
-        // /GENERATE
 
         else if (command === "/generate") {
           console.log("CONTENT GENERATION REQUESTED");
@@ -448,8 +477,6 @@ export default {
           });
         }
 
-        // /AI_TEST
-
         else if (command === "/ai_test") {
           console.log("GEMINI TEST STARTED");
 
@@ -461,12 +488,11 @@ export default {
           try {
             const answer = await geminiGenerate(
               env,
-              "Ты OSINT-аналитик. Напиши краткий тестовый материал на русском языке: три способа проверить цифровой след компании из открытых источников. Не выдумывай факты. Используй нумерованный список."
+              "Ты OSINT-аналитик. Напиши краткий тестовый материал на русском языке: три способа проверить цифровой след компании из открытых источников. Не выдумывай факты. Используй нумерованный список.",
+              { task: "ai_test" }
             );
 
-            const chunks = splitTelegramText(answer);
-
-            for (const chunk of chunks) {
+            for (const chunk of splitTelegramText(answer)) {
               await telegram(env, "sendMessage", {
                 chat_id: chatId,
                 text: chunk
@@ -476,10 +502,7 @@ export default {
             console.log("GEMINI TEST COMPLETED");
 
           } catch (error) {
-            console.error(
-              "GEMINI COMMAND FAILED:",
-              error.message
-            );
+            console.error("GEMINI COMMAND FAILED:", error.message);
 
             await telegram(env, "sendMessage", {
               chat_id: chatId,
@@ -489,8 +512,6 @@ export default {
             });
           }
         }
-
-        // UNKNOWN COMMAND
 
         else if (command.startsWith("/")) {
           await telegram(env, "sendMessage", {
@@ -581,10 +602,8 @@ export class ApprovalCoordinator {
 
       if (path === "/test") {
         result = await this.handleTest(payload);
-
       } else if (path === "/generate") {
         result = await this.handleGenerate(payload);
-
       } else {
         result = await this.handleCallback(payload);
       }
@@ -710,7 +729,6 @@ export class ApprovalCoordinator {
     }
 
     const rotationKey = "topic_rotation_index";
-
     const savedIndex = await this.ctx.storage.get(rotationKey);
 
     const index = Number.isInteger(savedIndex)
@@ -734,7 +752,8 @@ export class ApprovalCoordinator {
 
     const generatedTopic = await geminiGenerate(
       this.env,
-      prompt
+      prompt,
+      { task: "topic" }
     );
 
     const title = generatedTopic
@@ -761,10 +780,7 @@ export class ApprovalCoordinator {
     };
 
     await this.ctx.storage.transaction(async (txn) => {
-      await txn.put(
-        `item:${item.id}`,
-        item
-      );
+      await txn.put(`item:${item.id}`, item);
 
       await txn.put(
         rotationKey,
@@ -834,10 +850,7 @@ export class ApprovalCoordinator {
     };
 
     await this.ctx.storage.transaction(async (txn) => {
-      await txn.put(
-        `item:${item.id}`,
-        item
-      );
+      await txn.put(`item:${item.id}`, item);
 
       await this.addEvent(txn, {
         item_id: item.id,
@@ -897,27 +910,285 @@ export class ApprovalCoordinator {
 
     const result = await geminiGenerate(
       this.env,
-      prompt
+      prompt,
+      { task: "publication_text" }
     );
 
     if (!result || result.trim().length < 300) {
-  throw new Error("Generated publication text is too short");
-}
+      throw new Error("Generated publication text is too short");
+    }
 
-if (Array.from(result).length > 3700) {
-  const shortened = await geminiGenerate(
-    this.env,
-    `Сократи следующий материал до 3000 символов максимум, сохранив его структуру, основные выводы, практический пример и источники для проверки. Не добавляй новых фактов. Верни только сокращённый текст:\n\n${result}`
-  );
+    if (Array.from(result).length > 3700) {
+      const shortened = await geminiGenerate(
+        this.env,
+        `Сократи следующий материал до 3000 символов максимум, сохранив его структуру, основные выводы, практический пример и источники для проверки. Не добавляй новых фактов. Верни только сокращённый текст:\n\n${result}`,
+        { task: "shorten_publication" }
+      );
 
-  if (Array.from(shortened).length > 3700) {
-    throw new Error("Generated text exceeds Telegram single-message limit");
+      if (Array.from(shortened).length > 3700) {
+        throw new Error("Generated text exceeds Telegram single-message limit");
+      }
+
+      return shortened.trim();
+    }
+
+    return result.trim();
   }
 
-  return shortened.trim();
-}
+  // ==================================================
+  // VISUAL STYLE SETTINGS
+  // ==================================================
 
-return result.trim();
+  getVisualStyleInstructions() {
+    const identity = SETTINGS.brand_identity || {};
+    const typography = SETTINGS.typography || {};
+    const negativePrompt = SETTINGS.negative_style_prompt || [];
+
+    return (
+      `ВИЗУАЛЬНАЯ ИДЕНТИЧНОСТЬ:\n` +
+      `Позиционирование: ${identity.brand_positioning || "Premium investigative editorial media"}.\n` +
+      `Визуальный принцип: ${identity.visual_principle || "Premium investigative documentary photography"}.\n` +
+      `Ключевые слова: ${(identity.visual_keywords || []).join(", ")}.\n\n` +
+      `ТИПОГРАФИКА:\n` +
+      `Стиль: ${typography.style || "bold modern editorial sans-serif"}.\n` +
+      `Заголовок: ${typography.headline_style || "extra bold Russian sans-serif"}.\n` +
+      `Цвет заголовка: ${typography.headline_color || "#F5F5F5"}.\n` +
+      `Цвет выделений: ${typography.highlight_color || "#F26A1B"}.\n` +
+      `Цвет подзаголовка: ${typography.subtitle_color || "#F5F5F5"}.\n` +
+      `Правила: ${(typography.rules || []).join("; ")}.\n\n` +
+      `ОБЯЗАТЕЛЬНЫЕ ЗАПРЕТЫ:\n` +
+      `${(identity.branding_rules || []).join("; ")}.\n` +
+      `Не использовать: ${negativePrompt.join(", ")}.\n` +
+      `Правило постоянства: ${identity.consistency_rule || ""}`
+    );
+  }
+
+  // ==================================================
+  // AI VISUAL CONCEPT GENERATOR
+  // ==================================================
+
+  async generateVisualBrief(item) {
+    const styleInstructions = this.getVisualStyleInstructions();
+
+    const prompt =
+      `Ты арт-директор премиального расследовательского медиа OSINT Editorial.\n\n` +
+      `Твоя задача — подготовить готовое техническое задание и промпты для генерации изображений публикации.\n\n` +
+      `ТЕМА: ${item.title}\n` +
+      `КАТЕГОРИЯ: ${item.category}\n\n` +
+      `ТЕКСТ ПУБЛИКАЦИИ:\n${item.text_content || item.content}\n\n` +
+      `${styleInstructions}\n\n` +
+      `ПРАВИЛА ФОРМАТА:\n` +
+      `1. Самостоятельно выбери один формат: ОДИНОЧНЫЙ ПОСТ или КАРУСЕЛЬ.\n` +
+      `2. Выбирай карусель только тогда, когда тема действительно требует последовательного раскрытия нескольких самостоятельных смысловых частей.\n` +
+      `3. Для одиночного поста используй формат 4:5 и создай один полноценный промпт.\n` +
+      `4. Для карусели создай от 3 до 5 слайдов. Каждый слайд — отдельное изображение 4:5 и отдельный промпт.\n` +
+      `5. Все изображения должны быть выполнены в единой визуальной системе, но не должны быть одинаковыми или повторять одну композицию.\n` +
+      `6. Не добавляй вымышленные факты, цифры, документы, логотипы или названия организаций.\n` +
+      `7. Текст на изображении должен быть коротким, грамотным, читаемым и на русском языке.\n` +
+      `8. Не используй хештеги.\n` +
+      `9. Не добавляй OSINTNER, логотип, водяной знак, название бренда или подпись.\n` +
+      `10. Каждый промпт должен быть самостоятельным и пригодным для передачи в генератор изображений без дополнительного контекста.\n\n` +
+      `СТРУКТУРА ОТВЕТА:\n\n` +
+      `ФОРМАТ: [ОДИНОЧНЫЙ ПОСТ или КАРУСЕЛЬ]\n\n` +
+      `КОНЦЕПЦИЯ: [краткое описание общей визуальной идеи]\n\n` +
+      `ОБОСНОВАНИЕ: [почему выбран этот формат]\n\n` +
+      `ОБЩИЕ ПАРАМЕТРЫ: [соотношение сторон, палитра, атмосфера, типографика]\n\n` +
+      `ТЕКСТ НА ИЗОБРАЖЕНИИ: [точный заголовок и короткий подзаголовок]\n\n` +
+      `ПРОМПТ ДЛЯ ГЕНЕРАЦИИ:\n` +
+      `Для одиночного поста — один полный промпт.\n` +
+      `Для карусели — отдельный промпт для каждого слайда с номером, заголовком, содержанием и визуальной композицией.\n\n` +
+      `Верни только готовое техническое задание. Не добавляй вступлений и заключений.`;
+
+    const result = await geminiGenerate(
+      this.env,
+      prompt,
+      {
+        task: "visual_brief",
+        temperature: 0.7,
+        maxOutputTokens: 2500
+      }
+    );
+
+    if (!result || result.trim().length < 200) {
+      throw new Error("Generated visual brief is too short");
+    }
+
+    return result.trim();
+  }
+
+  // ==================================================
+  // GENERATION FAILURE HANDLER
+  // ==================================================
+
+  async markGenerationFailed(itemId, expectedStatus, stage, error) {
+    const itemKey = `item:${itemId}`;
+
+    await this.ctx.storage.transaction(async (txn) => {
+      const item = await txn.get(itemKey);
+
+      if (!item || item.status !== expectedStatus) {
+        return;
+      }
+
+      const timestamp = new Date().toISOString();
+
+      item.status = "generation_failed";
+      item.updated_at = timestamp;
+      item.generation_error = String(error.message || error).slice(0, 1000);
+
+      await txn.put(itemKey, item);
+
+      await this.addEvent(txn, {
+        item_id: item.id,
+        stage,
+        action: "ai_generation_failed",
+        error: item.generation_error
+      });
+
+      await this.enqueue(
+        txn,
+        "sendMessage",
+        {
+          chat_id: this.env.TELEGRAM_CHAT_ID,
+          text:
+            `Не удалось подготовить этап «${STAGE_NAMES[stage]}».\n\n` +
+            `Материал: ${item.id}\n` +
+            `Статус: generation_failed\n` +
+            `Причина: ${item.generation_error}\n\n` +
+            `Создай новую тему командой /generate.`
+        }
+      );
+    });
+  }
+
+  // ==================================================
+  // GENERATE TEXT AND MOVE TO TEXT APPROVAL
+  // ==================================================
+
+  async runTextGeneration(itemId) {
+    const itemKey = `item:${itemId}`;
+
+    try {
+      const sourceItem = await this.ctx.storage.get(itemKey);
+
+      if (!sourceItem) {
+        throw new Error("Material not found");
+      }
+
+      console.log("AI TEXT GENERATION STARTED:", itemId);
+
+      const generatedText = await this.generateDraftText(sourceItem);
+
+      await this.ctx.storage.transaction(async (txn) => {
+        const item = await txn.get(itemKey);
+
+        if (!item || item.status !== "generating_text") {
+          return;
+        }
+
+        const timestamp = new Date().toISOString();
+
+        item.text_content = generatedText;
+        item.content = generatedText;
+        item.stage = "text";
+        item.status = "pending";
+        item.approval_id = crypto.randomUUID();
+        item.updated_at = timestamp;
+        item.text_generated_at = timestamp;
+
+        await txn.put(itemKey, item);
+
+        await this.addEvent(txn, {
+          item_id: item.id,
+          stage: "text",
+          action: "ai_text_generated",
+          category: item.category
+        });
+
+        await this.enqueue(
+          txn,
+          "sendMessage",
+          approvalMessage(item, this.env.TELEGRAM_CHAT_ID)
+        );
+      });
+
+      console.log("AI TEXT GENERATION COMPLETED:", itemId);
+
+    } catch (error) {
+      console.error("AI TEXT GENERATION FAILED:", error.message);
+
+      await this.markGenerationFailed(
+        itemId,
+        "generating_text",
+        "text",
+        error
+      );
+    }
+  }
+
+  // ==================================================
+  // GENERATE VISUAL AND MOVE TO VISUAL APPROVAL
+  // ==================================================
+
+  async runVisualGeneration(itemId) {
+    const itemKey = `item:${itemId}`;
+
+    try {
+      const sourceItem = await this.ctx.storage.get(itemKey);
+
+      if (!sourceItem) {
+        throw new Error("Material not found");
+      }
+
+      console.log("AI VISUAL GENERATION STARTED:", itemId);
+
+      const generatedVisual = await this.generateVisualBrief(sourceItem);
+
+      await this.ctx.storage.transaction(async (txn) => {
+        const item = await txn.get(itemKey);
+
+        if (!item || item.status !== "generating_visual") {
+          return;
+        }
+
+        const timestamp = new Date().toISOString();
+
+        item.visual_content = generatedVisual;
+        item.content = generatedVisual;
+        item.stage = "visual";
+        item.status = "pending";
+        item.approval_id = crypto.randomUUID();
+        item.updated_at = timestamp;
+        item.visual_generated_at = timestamp;
+
+        await txn.put(itemKey, item);
+
+        await this.addEvent(txn, {
+          item_id: item.id,
+          stage: "visual",
+          action: "ai_visual_generated",
+          category: item.category
+        });
+
+        await this.enqueue(
+          txn,
+          "sendMessage",
+          approvalMessage(item, this.env.TELEGRAM_CHAT_ID)
+        );
+      });
+
+      console.log("AI VISUAL GENERATION COMPLETED:", itemId);
+
+    } catch (error) {
+      console.error("AI VISUAL GENERATION FAILED:", error.message);
+
+      await this.markGenerationFailed(
+        itemId,
+        "generating_visual",
+        "visual",
+        error
+      );
+    }
   }
 
   // ==================================================
@@ -991,7 +1262,6 @@ return result.trim();
 
       const itemKey = `item:${itemId}`;
       const item = await txn.get(itemKey);
-
       const timestamp = new Date().toISOString();
 
       if (!item) {
@@ -1039,10 +1309,9 @@ return result.trim();
       if (action === "approve") {
         const index = STAGES.indexOf(currentStage);
 
-        if (index === STAGES.length - 1) {
+        if (currentStage === "final") {
           item.status = "publication_approved";
           item.publication_approved_at = timestamp;
-
           delete item.approval_id;
 
         } else if (
@@ -1050,7 +1319,13 @@ return result.trim();
           !item.is_test
         ) {
           item.status = "generating_text";
+          delete item.approval_id;
 
+        } else if (
+          currentStage === "text" &&
+          !item.is_test
+        ) {
+          item.status = "generating_visual";
           delete item.approval_id;
 
         } else {
@@ -1068,7 +1343,6 @@ return result.trim();
             : "revision_requested";
 
         item.decision_at = timestamp;
-
         delete item.approval_id;
       }
 
@@ -1093,7 +1367,9 @@ return result.trim();
                 ? "ФИНАЛЬНОЕ РАЗРЕШЕНИЕ ПОЛУЧЕНО. Публикация одобрена."
                 : currentStage === "topic" && !item.is_test
                   ? "Тема одобрена. Начинаю подготовку текста..."
-                  : `Этап «${STAGE_NAMES[currentStage]}» одобрен.`
+                  : currentStage === "text" && !item.is_test
+                    ? "Текст одобрен. Начинаю подготовку визуальной концепции..."
+                    : `Этап «${STAGE_NAMES[currentStage]}» одобрен.`
             )
           : (
               action === "reject"
@@ -1128,8 +1404,6 @@ return result.trim();
       };
     });
 
-    // DUPLICATE CALLBACK
-
     if (result.duplicate) {
       await telegram(this.env, "answerCallbackQuery", {
         callback_query_id: q.id,
@@ -1141,8 +1415,6 @@ return result.trim();
         duplicate: true
       };
     }
-
-    // INVALID OR STALE MATERIAL
 
     if (
       result.status === "stale" ||
@@ -1162,115 +1434,14 @@ return result.trim();
       };
     }
 
-    // ==================================================
-    // GENERATE TEXT AFTER TOPIC APPROVAL
-    // ==================================================
-
     if (result.status === "generating_text") {
-      const itemKey = `item:${result.item_id}`;
-
       await this.flushOutbox();
+      await this.runTextGeneration(result.item_id);
+    }
 
-      try {
-        const sourceItem = await this.ctx.storage.get(itemKey);
-
-        if (!sourceItem) {
-          throw new Error("Material not found");
-        }
-
-        console.log(
-          "AI TEXT GENERATION STARTED:",
-          result.item_id
-        );
-
-        const generatedText =
-          await this.generateDraftText(sourceItem);
-
-        await this.ctx.storage.transaction(async (txn) => {
-          const item = await txn.get(itemKey);
-
-          if (
-            !item ||
-            item.status !== "generating_text"
-          ) {
-            return;
-          }
-
-          const timestamp = new Date().toISOString();
-
-          item.content = generatedText;
-          item.stage = "text";
-          item.status = "pending";
-          item.approval_id = crypto.randomUUID();
-          item.updated_at = timestamp;
-          item.text_generated_at = timestamp;
-
-          await txn.put(itemKey, item);
-
-          await this.addEvent(txn, {
-            item_id: item.id,
-            stage: "text",
-            action: "ai_text_generated",
-            category: item.category
-          });
-
-          await this.enqueue(
-            txn,
-            "sendMessage",
-            approvalMessage(
-              item,
-              this.env.TELEGRAM_CHAT_ID
-            )
-          );
-        });
-
-        console.log(
-          "AI TEXT GENERATION COMPLETED:",
-          result.item_id
-        );
-
-      } catch (error) {
-        console.error(
-          "AI TEXT GENERATION FAILED:",
-          error.message
-        );
-
-        await this.ctx.storage.transaction(async (txn) => {
-          const item = await txn.get(itemKey);
-
-          if (
-            !item ||
-            item.status !== "generating_text"
-          ) {
-            return;
-          }
-
-          item.status = "generation_failed";
-          item.updated_at = new Date().toISOString();
-
-          await txn.put(itemKey, item);
-
-          await this.addEvent(txn, {
-            item_id: item.id,
-            stage: "text",
-            action: "ai_text_generation_failed",
-            error: error.message
-          });
-
-          await this.enqueue(
-            txn,
-            "sendMessage",
-            {
-              chat_id: this.env.TELEGRAM_CHAT_ID,
-              text:
-                "Не удалось подготовить текст публикации.\n\n" +
-                `Материал: ${item.id}\n` +
-                "Статус: generation_failed\n" +
-                `Причина: ${error.message}`
-            }
-          );
-        });
-      }
+    if (result.status === "generating_visual") {
+      await this.flushOutbox();
+      await this.runVisualGeneration(result.item_id);
     }
 
     return {
@@ -1334,9 +1505,6 @@ return result.trim();
           error: errorMessage
         });
 
-        // Исправление старых сообщений,
-        // которые превышают лимит Telegram.
-
         if (errorMessage.includes("message is too long")) {
           await this.ctx.storage.transaction(async (txn) => {
             await txn.delete(key);
@@ -1351,9 +1519,7 @@ return result.trim();
             );
           });
 
-          console.log(
-            "Oversized message split into smaller messages"
-          );
+          console.log("Oversized message split into smaller messages");
 
           await this.ctx.storage.setAlarm(
             Date.now() + 1000
@@ -1361,9 +1527,6 @@ return result.trim();
 
           return;
         }
-
-        // Постоянные ошибки Telegram не должны
-        // бесконечно блокировать очередь.
 
         if (errorMessage.includes("status 400")) {
           await this.ctx.storage.put(
@@ -1383,8 +1546,6 @@ return result.trim();
 
           continue;
         }
-
-        // Временные ошибки — повторная отправка.
 
         await this.ctx.storage.setAlarm(
           Date.now() + OUTBOX_RETRY_MS
