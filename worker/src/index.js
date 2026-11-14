@@ -276,34 +276,48 @@ function formatVisualPlan(plan) {
   ].join("\n");
 }
 
-async function generateAndStoreVisualAssets(env, itemId, plan) {
+async function generateAndStoreVisualAssets(env, itemId, plan, item) {
   if (!env.EDITORIAL_DATA) throw new Error("EDITORIAL_DATA KV binding is not configured");
-  const baseUrl = "https://osint-telegram-gateway-staging.vssitner.workers.dev";
-  const assets = [];
-  for (let index = 0; index < plan.slides.length; index++) {
-    const slide = plan.slides[index];
-    const prompt = [
-      "ТЕМАТИЧЕСКАЯ ВЕКТОРНАЯ СЦЕНА: " + String(slide.prompt).trim(),
-      "ФОРМАТ: строго вертикальный 4:5, 1024x1280 пикселей.",
-      "СТИЛЬ: premium investigative editorial vector illustration, строгая плоская векторная графика, точные геометрические формы, чистые контуры, без фотореализма и без 3D. Цвета строго: фон #0B0D0F/#15181B, светлые формы #E7E9EA, вторичные #858B91, основной акцент #FF5A36, #A7D65C только для точечного маркера проверки.",
-      "КОМПОЗИЦИЯ: одна однозначная визуальная метафора именно темы статьи; только объекты, необходимые для её понимания. Элементы не должны сливаться, деформироваться или иметь невозможную геометрию. Не добавляй посторонние предметы. Не делай коллаж, набор иконок или универсальную абстракцию. Без интерфейсных панелей и дашбордов.",
-      "АБСОЛЮТНО НИКАКОГО ТЕКСТА: не создавать ни букв, ни цифр, ни слов, ни заголовков, ни подзаголовков, ни подписей, ни псевдотекста, ни случайных символов, ни маркировок. Никаких надписей на документах, бумагах, экранах, телефонах, компьютерах, вывесках, зданиях, одежде и предметах. Не имитировать текст нечитаемыми линиями или символами. Изображение должно быть полностью без текста.",
-      "Никаких логотипов, брендов, названий компаний, OSINTNER, водяных знаков, социальных никнеймов, брендовых подписей или символов.",
-      "ИСКЛЮЧИТЬ: photography, photorealism, 3D, CGI, cyberpunk, hacker in hoodie, matrix green rain, neon RGB, futuristic holograms, sci-fi interface, technical dashboards, complex HUD, warm brown palette, golden lighting, anime, cartoon, generic stock imagery, visual clutter.",
-      "Никакой типографики и никакого текста внутри изображения; пост публикуется с отдельным тематическим текстовым описанием в подписи того же Threads-поста."
-    ].join("\n");
-    const bytes = await generateCloudflareImage(env, prompt);
-    const id = crypto.randomUUID().replace(/-/g, "");
-    await env.EDITORIAL_DATA.put("social-image:" + id, bytes, { expirationTtl: 60 * 60 * 24 * 90 });
-    assets.push({
-      id, url: baseUrl + "/media/" + id,
-      title: String(slide.title || ("Слайд " + (index + 1))).slice(0, 180),
-      subtitle: String(slide.subtitle || "").slice(0, 250),
-      alt_text: String(slide.alt_text || slide.title || "Редакционная иллюстрация OSINTNER").slice(0, 1000),
-      item_id: itemId, slide: index + 1
-    });
+  if (!plan || plan.format !== "single" || !Array.isArray(plan.slides) || plan.slides.length !== 1) {
+    throw new Error("OSINTNER requires exactly one visual asset per Threads post");
   }
-  return assets;
+  const slide = plan.slides[0];
+  const baseUrl = "https://osint-telegram-gateway-staging.vssitner.workers.dev";
+  const basePrompt = [
+    "ТЕМАТИЧЕСКАЯ СЦЕНА: " + String(slide.prompt).trim(),
+    "СОБЛЮДАЙ СТИЛЬ OSINTNER: плоская редакционная векторная графика, чёткие геометрические формы, уверенные чистые контуры, контролируемые плоскости цвета, строгая композиция, интеллектуальная forensic-журналистика.",
+    "ТОЧНАЯ ПАЛИТРА: фон #0B0D0F и #15181B; светлые элементы #E7E9EA; вторичные #858B91; акцент #FF5A36; #A7D65C допустим только для одного небольшого маркера подтверждения. Не вводи другие цвета.",
+    "Композиция: вертикаль 4:5, один главный смысловой объект и максимум два вспомогательных элемента. Главный объект должен быть крупным, узнаваемым и непосредственно раскрывать тему. Все предметы физически и геометрически самостоятельны, не пересекаются случайным образом, не сливаются, не деформируются и не имеют невозможных соединений.",
+    "ИЗОБРАЖЕНИЕ БЕЗ ТЕКСТА: ни букв, ни цифр, ни слов, ни псевдотекста, ни линий-имитаций текста, ни символов, ни логотипов, ни водяных знаков. Не изображай документы или экраны с надписями. Не добавляй типографику.",
+    "Не использовать фотографию, фотореализм, 3D, CGI, градиентные неоновые эффекты, киберпанк, матричные символы, хакеров, интерфейсы, HUD, дашборды, случайные ноутбуки, лупы, папки или абстрактные сети, если они прямо не являются предметом статьи.",
+    "Изображение должно выглядеть как авторская плоская векторная обложка премиального расследовательского медиа, а не как случайная генерация или стоковая иллюстрация.",
+    "Размер 1024x1280. Текст публикации будет размещён отдельно в подписи того же единственного поста Threads."
+  ].join("\n");
+  let bytes = null;
+  let imageReview = null;
+  let finalPrompt = basePrompt;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    finalPrompt = basePrompt + (attempt === 0 ? "" : "\nПРЕДЫДУЩАЯ ВЕРСИЯ ОТКЛОНЕНА ПРОВЕРКОЙ: " + String(imageReview?.reason || "не соблюдены критерии").slice(0, 900) + ". Исправь конкретно перечисленные недостатки; не меняй тему.");
+    bytes = await generateCloudflareImage(env, finalPrompt);
+    imageReview = await reviewGeneratedVisual(env, bytes, item, slide, plan);
+    if (imageReview.pass === true) break;
+    if (attempt === 1) {
+      throw new Error("Generated image failed mandatory OSINTNER visual QA: " + String(imageReview.reason || "style, relevance, text or geometry check failed").slice(0, 700));
+    }
+  }
+  if (!bytes || !imageReview || imageReview.pass !== true) throw new Error("Generated image did not pass mandatory visual QA");
+  const id = crypto.randomUUID().replace(/-/g, "");
+  await env.EDITORIAL_DATA.put("social-image:" + id, bytes, { expirationTtl: 60 * 60 * 24 * 90 });
+  return [{
+    id,
+    url: baseUrl + "/media/" + id,
+    title: String(slide.title || "Тематическая иллюстрация").slice(0, 180),
+    alt_text: String(slide.alt_text || slide.title || "Векторная иллюстрация по теме публикации").slice(0, 1000),
+    item_id: itemId,
+    slide: 1,
+    format: "single",
+    visual_qa: imageReview
+  }];
 }
 
 // GEMINI AI
