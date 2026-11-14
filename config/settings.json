@@ -56,7 +56,7 @@
       "Never add social media handles",
       "Never add decorative brand signatures",
       "Keep the image visually clean and editorial",
-      "Use only the headline, subtitle and content-related text requested for the specific image"
+      "Generated photographic layer must contain absolutely no text of any kind; headlines and subtitles are added only in a separate external layout stage"
     ]
   },
   "typography": {
@@ -67,11 +67,11 @@
     "highlight_color": "#F26A1B",
     "subtitle_color": "#F5F5F5",
     "rules": [
-      "Large readable headline",
-      "White text is dominant",
-      "Highlight selected words in orange",
-      "Short white subtitle",
-      "Thin orange horizontal divider",
+      "Large readable headline — apply only during separate external cover layout, never inside generated photography",
+      "White text is dominant in the separate external cover layout only",
+      "Highlight selected words in orange in the separate external cover layout only",
+      "Short white subtitle in the separate external cover layout only",
+      "Thin orange horizontal divider in the separate external cover layout only",
       "Strict left alignment",
       "No decorative fonts",
       "No brand name",
@@ -104,5 +104,5 @@
     "generic stock photography",
     "visual clutter"
   ],
-  "consistency_rule": "Preserve the approved OSINTNER visual identity: cold dark navy and blue-gray photographic atmosphere, dramatic corporate documentary photography, bold white Russian headlines, orange highlights and thin orange dividers. Never include OSINTNER text, logo, watermark or brand signature. Only display content-specific text requested for the current image."
+  "consistency_rule": "Preserve the approved OSINTNER visual identity: cold dark navy and blue-gray photographic atmosphere and dramatic corporate documentary photography. The generated photograph must contain absolutely no text, letters, numbers, symbols, logos, watermarks or signatures. Bold white Russian headlines, orange highlights and thin orange dividers belong only to a separate external layout stage after image generation."
 }
