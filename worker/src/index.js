@@ -413,7 +413,6 @@ export default {
       const url = new URL(request.url);
       const path = url.pathname;
       const redirectUri = "https://osint-telegram-gateway-staging.vssitner.workers.dev/threads/callback";
-      const instagramRedirectUri = "https://osint-telegram-gateway-staging.vssitner.workers.dev/instagram/callback";
 
       if (path.startsWith("/media/")) {
         const mediaId = path.slice("/media/".length);
@@ -454,94 +453,6 @@ export default {
         } catch (error) {
           console.error("Threads OAuth start failed:", error.message);
           return new Response("Could not start Threads authorization. Check Worker configuration.", { status: 500 });
-        }
-      }
-
-      if (path === "/instagram/connect") {
-        if (!env.INSTAGRAM_APP_ID || !env.INSTAGRAM_APP_SECRET) {
-          return new Response("Instagram API credentials are not configured. Add INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET to the Worker environment.", { status: 500 });
-        }
-        try {
-          const state = crypto.randomUUID();
-          await callCoordinator(env, "/instagram/oauth/save-state", { state, created_at: Date.now() });
-          const authorizeUrl = new URL("https://www.instagram.com/oauth/authorize");
-          authorizeUrl.searchParams.set("client_id", env.INSTAGRAM_APP_ID);
-          authorizeUrl.searchParams.set("redirect_uri", instagramRedirectUri);
-          authorizeUrl.searchParams.set("scope", "instagram_business_basic,instagram_business_content_publish");
-          authorizeUrl.searchParams.set("response_type", "code");
-          authorizeUrl.searchParams.set("state", state);
-          return Response.redirect(authorizeUrl.toString(), 302);
-        } catch (error) {
-          console.error("Instagram OAuth start failed:", error.message);
-          return new Response("Could not start Instagram authorization. Check Worker configuration.", { status: 500 });
-        }
-      }
-
-      if (path === "/instagram/callback") {
-        const oauthError = url.searchParams.get("error");
-        if (oauthError) return new Response("Instagram authorization was not completed. You can close this page.", { status: 400 });
-        const code = url.searchParams.get("code");
-        const state = url.searchParams.get("state");
-        if (!code || !state) return new Response("Missing Instagram authorization code or state.", { status: 400 });
-        try {
-          await callCoordinator(env, "/instagram/oauth/consume-state", { state });
-          const tokenForm = new URLSearchParams({
-            client_id: env.INSTAGRAM_APP_ID,
-            client_secret: env.INSTAGRAM_APP_SECRET,
-            grant_type: "authorization_code",
-            redirect_uri: instagramRedirectUri,
-            code
-          });
-          const shortResponse = await fetch("https://api.instagram.com/oauth/access_token", {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: tokenForm
-          });
-          const shortToken = await shortResponse.json().catch(() => ({}));
-          if (!shortResponse.ok || !shortToken.access_token || !shortToken.user_id) {
-            throw new Error(shortToken.error_message || shortToken.error?.message || "Instagram authorization code exchange failed: " + shortResponse.status);
-          }
-          const longUrl = new URL("https://graph.instagram.com/access_token");
-          longUrl.searchParams.set("grant_type", "ig_exchange_token");
-          longUrl.searchParams.set("client_secret", env.INSTAGRAM_APP_SECRET);
-          longUrl.searchParams.set("access_token", shortToken.access_token);
-          const longResponse = await fetch(longUrl.toString());
-          const longToken = await longResponse.json().catch(() => ({}));
-          if (!longResponse.ok || !longToken.access_token) {
-            throw new Error(longToken.error?.message || "Instagram long-lived token exchange failed: " + longResponse.status);
-          }
-          const accessToken = longToken.access_token;
-          let instagramUserId = String(longToken.user_id || shortToken.user_id);
-          let username = "";
-          const profileUrl = new URL("https://graph.instagram.com/v27.0/me");
-          profileUrl.searchParams.set("fields", "id,username");
-          profileUrl.searchParams.set("access_token", accessToken);
-          const profileResponse = await fetch(profileUrl.toString());
-          if (profileResponse.ok) {
-            const profile = await profileResponse.json();
-            instagramUserId = String(profile.id || instagramUserId);
-            username = String(profile.username || "");
-          }
-          const expiresIn = Number(longToken.expires_in || 5184000);
-          await callCoordinator(env, "/instagram/oauth/save-token", {
-            access_token: accessToken,
-            user_id: instagramUserId,
-            username,
-            token_type: longToken.token_type || "bearer",
-            expires_at: Date.now() + expiresIn * 1000,
-            saved_at: Date.now()
-          });
-          const label = username ? "@" + username : "аккаунт Instagram";
-          await telegram(env, "sendMessage", {
-            chat_id: env.TELEGRAM_CHAT_ID,
-            text: "Instagram успешно подключён: " + label + ". Ежечасная юмористическая рубрика публикуется только в Threads. Instagram предназначен для обычных редакционных материалов OSINTNER."
-          });
-          return new Response("Instagram успешно подключён: " + label + ". Долгосрочный токен сохранён на стороне Worker. Эту страницу можно закрыть.", {
-            headers: { "Content-Type": "text/plain; charset=utf-8" }
-          });
-        } catch (error) {
-          console.error("Instagram OAuth callback failed:", error.message);
-          return new Response("Instagram authorization could not be completed: " + String(error.message || error).slice(0, 500), { status: 400 });
         }
       }
 
@@ -732,7 +643,6 @@ export default {
               "/generate — генерация новой темы\n" +
               "/ai_test — проверка Gemini\n" +
               "/image_test — тест генерации изображения\n" +
-              "/instagram_connect — подключить Instagram для автопубликации\n" +
               "/settings — просмотр настроек\n" +
               "/id — проверка Telegram ID"
           });
@@ -763,13 +673,6 @@ export default {
               `Reels per day: ${SETTINGS.publishing.reels_per_day}\n` +
               `Topic rotation: ${SETTINGS.content_strategy.topic_rotation.join(" → ")}\n` +
               `Hashtags: ${SETTINGS.content_strategy.hashtags ? "enabled" : "disabled"}`
-          });
-        }
-
-        else if (command === "/instagram_connect") {
-          await telegram(env, "sendMessage", {
-            chat_id: chatId,
-            text: "Для подключения Instagram открой ссылку и подтверди доступ к профессиональному аккаунту:\nhttps://osint-telegram-gateway-staging.vssitner.workers.dev/instagram/connect"
           });
         }
 
@@ -967,9 +870,6 @@ export class ApprovalCoordinator {
       path !== "/threads/oauth/save-state" &&
       path !== "/threads/oauth/consume-state" &&
       path !== "/threads/oauth/save-token" &&
-      path !== "/instagram/oauth/save-state" &&
-      path !== "/instagram/oauth/consume-state" &&
-      path !== "/instagram/oauth/save-token" &&
       path !== "/hourly-trend"
     ) {
       return new Response("Not found", {
@@ -1020,33 +920,6 @@ export class ApprovalCoordinator {
           result = { ok: false, error: "Incomplete Threads token data" };
         } else {
           await this.ctx.storage.put("threads:oauth:token", {
-            access_token: String(payload.access_token),
-            user_id: String(payload.user_id),
-            username: String(payload.username || ""),
-            token_type: String(payload.token_type || "bearer"),
-            expires_at: Number(payload.expires_at),
-            saved_at: Number(payload.saved_at || Date.now())
-          });
-          result = { ok: true };
-        }
-      } else if (path === "/instagram/oauth/save-state") {
-        const state = String(payload.state || "");
-        if (!/^[0-9a-f-]{36}$/i.test(state)) result = { ok: false, error: "Invalid Instagram OAuth state" };
-        else {
-          await this.ctx.storage.put("instagram:oauth:state:" + state, { created_at: Number(payload.created_at || Date.now()) });
-          result = { ok: true };
-        }
-      } else if (path === "/instagram/oauth/consume-state") {
-        const state = String(payload.state || "");
-        const key = "instagram:oauth:state:" + state;
-        const saved = await this.ctx.storage.get(key);
-        await this.ctx.storage.delete(key);
-        if (!saved || Date.now() - Number(saved.created_at || 0) > 10 * 60 * 1000) result = { ok: false, error: "Instagram OAuth state is invalid or expired" };
-        else result = { ok: true };
-      } else if (path === "/instagram/oauth/save-token") {
-        if (!payload.access_token || !payload.user_id || !payload.expires_at) result = { ok: false, error: "Incomplete Instagram token data" };
-        else {
-          await this.ctx.storage.put("instagram:oauth:token", {
             access_token: String(payload.access_token),
             user_id: String(payload.user_id),
             username: String(payload.username || ""),
