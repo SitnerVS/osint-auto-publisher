@@ -706,6 +706,7 @@ export default {
               "/test — тест согласования\n" +
               "/visual_test — безопасный тест генерации визуала\n" +
               "/generate — генерация новой темы\n" +
+              "/publish_retry ID — продолжить обработку изображения Threads\n" +
               "/ai_test — проверка Gemini\n" +
               "/image_test — тест генерации изображения\n" +
               "/settings — просмотр настроек\n" +
@@ -875,6 +876,7 @@ export default {
               "/test\n" +
               "/visual_test\n" +
               "/generate\n" +
+              "/publish_retry ID\n" +
               "/settings\n" +
               "/ai_test\n" +
               "/image_test\n" +
