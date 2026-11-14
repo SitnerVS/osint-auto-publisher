@@ -19,7 +19,9 @@ async function telegram(env, method, data) {
     `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json"
+      },
       body: JSON.stringify(data)
     }
   );
@@ -27,11 +29,20 @@ async function telegram(env, method, data) {
   const result = await response.json();
 
   if (!response.ok || !result.ok) {
+    console.error(
+      "Telegram API error:",
+      method,
+      response.status,
+      result.description || "Unknown error"
+    );
+
     throw new Error(`Telegram API error: ${method}`);
   }
 
   return result;
 }
+
+// GEMINI AI
 
 async function geminiGenerate(env, prompt) {
   if (!env.GEMINI_API_KEY) {
@@ -49,7 +60,11 @@ async function geminiGenerate(env, prompt) {
       body: JSON.stringify({
         contents: [
           {
-            parts: [{ text: prompt }]
+            parts: [
+              {
+                text: prompt
+              }
+            ]
           }
         ],
         generationConfig: {
@@ -63,21 +78,35 @@ async function geminiGenerate(env, prompt) {
   const result = await response.json();
 
   if (!response.ok) {
-    console.error("Gemini API error:", response.status);
-    throw new Error("Gemini generation failed");
+    console.error(
+      "Gemini API error:",
+      response.status,
+      result.error?.message || "Unknown error"
+    );
+
+    throw new Error(
+      `Gemini API returned ${response.status}`
+    );
   }
 
-  const text = result.candidates?.[0]?.content?.parts
+  const answer = result.candidates?.[0]?.content?.parts
     ?.map(part => part.text || "")
     .join("")
     .trim();
 
-  if (!text) {
+  if (!answer) {
+    console.error(
+      "Gemini returned no text:",
+      JSON.stringify(result).slice(0, 1500)
+    );
+
     throw new Error("Gemini returned empty response");
   }
 
-  return text;
+  return answer;
 }
+
+// APPROVAL MESSAGE
 
 function approvalMessage(item, chatId) {
   return {
@@ -111,6 +140,8 @@ function approvalMessage(item, chatId) {
   };
 }
 
+// DURABLE OBJECT REQUEST
+
 async function callCoordinator(env, path, payload) {
   const id = env.APPROVAL_COORDINATOR.idFromName(
     "osint-editorial"
@@ -140,6 +171,8 @@ async function callCoordinator(env, path, payload) {
   return result;
 }
 
+// MAIN WORKER
+
 export default {
   async fetch(request, env) {
     if (request.method === "GET") {
@@ -153,6 +186,8 @@ export default {
         status: 405
       });
     }
+
+    // WEBHOOK SECURITY
 
     const suppliedSecret = request.headers.get(
       "X-Telegram-Bot-Api-Secret-Token"
@@ -178,6 +213,8 @@ export default {
     }
 
     try {
+      // TELEGRAM MESSAGES
+
       if (update.message) {
         const message = update.message;
 
@@ -194,30 +231,76 @@ export default {
           userId === String(env.TELEGRAM_CHAT_ID) &&
           message.chat?.type === "private";
 
-        if (allowed && message.text === "/start") {
+        const command = String(message.text ?? "")
+          .trim()
+          .split(/\s+/)[0]
+          .split("@")[0];
+
+        console.log("Telegram message received:", {
+          command,
+          privateChat: message.chat?.type === "private",
+          chatAllowed:
+            chatId === String(env.TELEGRAM_CHAT_ID),
+          userAllowed:
+            userId === String(env.TELEGRAM_CHAT_ID)
+        });
+
+        // START
+
+        if (allowed && command === "/start") {
           await telegram(env, "sendMessage", {
-            chat_id: env.TELEGRAM_CHAT_ID,
+            chat_id: chatId,
             text:
               "OSINT Editorial подключён.\n" +
               "Система согласований готова."
           });
-                } else if (allowed && message.text === "/test") {
+
+        // APPROVAL TEST
+
+        } else if (allowed && command === "/test") {
           await callCoordinator(env, "/test", {
             user_id: userId,
             chat_id: chatId
           });
-        } else if (allowed && message.text === "/ai_test") {
-          const answer = await geminiGenerate(
-            env,
-            "Ты OSINT-аналитик. Напиши краткий тестовый материал на русском языке: три способа проверить цифровой след компании из открытых источников. Не выдумывай факты. Используй нумерованный список."
-          );
 
+        // GEMINI TEST
+
+        } else if (allowed && command === "/ai_test") {
           await telegram(env, "sendMessage", {
             chat_id: chatId,
-            text: answer
+            text: "Запускаю Gemini. Подожди немного..."
           });
+
+          try {
+            const answer = await geminiGenerate(
+              env,
+              "Ты OSINT-аналитик. Напиши краткий тестовый материал на русском языке: три способа проверить цифровой след компании из открытых источников. Не выдумывай факты. Используй нумерованный список."
+            );
+
+            await telegram(env, "sendMessage", {
+              chat_id: chatId,
+              text: answer
+            });
+
+            console.log("Gemini generation successful");
+
+          } catch (error) {
+            console.error(
+              "Gemini command failed:",
+              error.message
+            );
+
+            await telegram(env, "sendMessage", {
+              chat_id: chatId,
+              text:
+                "Не удалось получить ответ от Gemini.\n" +
+                "Подробности ошибки записаны в Cloudflare Logs."
+            });
+          }
         }
       }
+
+      // INLINE BUTTON CALLBACKS
 
       if (update.callback_query) {
         await callCoordinator(env, "/callback", {
@@ -226,6 +309,7 @@ export default {
       }
 
       return new Response("OK");
+
     } catch (error) {
       console.error(
         "Webhook processing failed:",
@@ -238,6 +322,8 @@ export default {
     }
   }
 };
+
+// APPROVAL COORDINATOR
 
 export class ApprovalCoordinator {
   constructor(ctx, env) {
@@ -280,8 +366,6 @@ export class ApprovalCoordinator {
           ? await this.handleTest(payload)
           : await this.handleCallback(payload);
 
-      // Сначала гарантируем наличие повторной попытки,
-      // затем пробуем отправить накопленные сообщения.
       await this.ctx.storage.setAlarm(
         Date.now() + OUTBOX_RETRY_MS
       );
@@ -289,6 +373,7 @@ export class ApprovalCoordinator {
       await this.flushOutbox();
 
       return json(result);
+
     } catch (error) {
       console.error(
         "Coordinator error:",
@@ -302,6 +387,8 @@ export class ApprovalCoordinator {
     }
   }
 
+  // OUTBOX
+
   async enqueue(txn, method, data) {
     const id = crypto.randomUUID();
 
@@ -311,6 +398,8 @@ export class ApprovalCoordinator {
       created_at: new Date().toISOString()
     });
   }
+
+  // AUDIT EVENTS
 
   async addEvent(txn, event) {
     const id = crypto.randomUUID();
@@ -323,6 +412,8 @@ export class ApprovalCoordinator {
       }
     );
   }
+
+  // TEST MATERIAL
 
   async handleTest(payload) {
     const expectedId = String(
@@ -342,7 +433,7 @@ export class ApprovalCoordinator {
     const timestamp = new Date().toISOString();
 
     const item = {
-id: `test-${crypto.randomUUID().slice(0, 8)}`,
+      id: `test-${crypto.randomUUID().slice(0, 8)}`,
       content:
         "ТЕСТОВАЯ ТЕМА: Как проверить цифровой след компании с помощью OSINT",
       stage: "topic",
@@ -384,6 +475,8 @@ id: `test-${crypto.randomUUID().slice(0, 8)}`,
       item_id: item.id
     };
   }
+
+  // APPROVAL CALLBACK
 
   async handleCallback(payload) {
     const q = payload.callback;
@@ -519,6 +612,7 @@ id: `test-${crypto.randomUUID().slice(0, 8)}`,
             item.publication_approved_at = timestamp;
 
             delete item.approval_id;
+
           } else {
             item.stage = STAGES[index + 1];
             item.status = "pending";
@@ -526,6 +620,7 @@ id: `test-${crypto.randomUUID().slice(0, 8)}`,
 
             nextItem = { ...item };
           }
+
         } else {
           item.status =
             action === "reject"
@@ -649,6 +744,8 @@ id: `test-${crypto.randomUUID().slice(0, 8)}`,
     };
   }
 
+  // OUTBOX DELIVERY
+
   async flushOutbox() {
     const messages = await this.ctx.storage.list({
       prefix: "outbox:"
@@ -663,6 +760,7 @@ id: `test-${crypto.randomUUID().slice(0, 8)}`,
         );
 
         await this.ctx.storage.delete(key);
+
       } catch (error) {
         console.error(
           "Outbox delivery failed:",
@@ -677,6 +775,8 @@ id: `test-${crypto.randomUUID().slice(0, 8)}`,
       }
     }
   }
+
+  // AUTOMATIC RETRY
 
   async alarm() {
     await this.flushOutbox();
