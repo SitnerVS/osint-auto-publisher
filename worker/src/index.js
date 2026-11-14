@@ -943,19 +943,36 @@ export default {
   async scheduled(controller, env, ctx) {
     ctx.waitUntil((async () => {
       try {
+        const localTime = new Date(controller.scheduledTime).toLocaleTimeString("en-GB", {
+          timeZone: SETTINGS.publishing.schedule_timezone || SETTINGS.timezone || "Europe/Moscow",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false
+        });
+        const editorialSlots = SETTINGS.publishing.feed_schedule || [];
+        if (editorialSlots.includes(localTime)) {
+          const result = await callCoordinator(env, "/generate", {
+            user_id: env.TELEGRAM_CHAT_ID,
+            chat_id: env.TELEGRAM_CHAT_ID,
+            scheduled_at: controller.scheduledTime,
+            schedule_key: "editorial:" + new Date(controller.scheduledTime).toISOString()
+          });
+          console.log("Scheduled editorial approval workflow started:", result);
+          return;
+        }
         const result = await callCoordinator(env, "/hourly-trend", {
           scheduled_at: controller.scheduledTime
         });
         console.log("Hourly social publishing workflow finished:", result);
       } catch (error) {
-        console.error("Hourly social publishing trigger failed:", error.message);
+        console.error("Scheduled social workflow failed:", error.message);
         try {
           await telegram(env, "sendMessage", {
             chat_id: env.TELEGRAM_CHAT_ID,
-            text: "Не удалось запустить ежечасную рубрику.\nПричина: " + String(error.message || error).slice(0, 500)
+            text: "Не удалось запустить запланированный поток OSINTNER.\nПричина: " + String(error.message || error).slice(0, 500)
           });
         } catch (notifyError) {
-          console.error("Hourly workflow error notification failed:", notifyError.message);
+          console.error("Scheduled workflow error notification failed:", notifyError.message);
         }
       }
     })());
@@ -1170,6 +1187,16 @@ export class ApprovalCoordinator {
       };
     }
 
+    const scheduleKey = String(payload.schedule_key || "");
+    if (scheduleKey) {
+      const existingSchedule = await this.ctx.storage.get("schedule-run:" + scheduleKey);
+      if (existingSchedule) return { ok: true, duplicate: true, item_id: existingSchedule.item_id || "" };
+      await this.ctx.storage.put("schedule-run:" + scheduleKey, {
+        status: "started",
+        started_at: new Date().toISOString()
+      });
+    }
+
     const topics = SETTINGS.content_strategy.topic_rotation;
 
     if (!Array.isArray(topics) || topics.length === 0) {
@@ -1230,6 +1257,14 @@ export class ApprovalCoordinator {
       updated_at: timestamp,
       approval_id: crypto.randomUUID()
     };
+
+    if (scheduleKey) {
+      await this.ctx.storage.put("schedule-run:" + scheduleKey, {
+        status: "created",
+        item_id: item.id,
+        created_at: timestamp
+      });
+    }
 
     await this.ctx.storage.transaction(async (txn) => {
       await txn.put(`item:${item.id}`, item);
