@@ -1287,21 +1287,26 @@ export class ApprovalCoordinator {
   // AI TEXT GENERATOR
   // ==================================================
 
-  async generateDraftText(item) {
+  async generateDraftText(item, rejectedVersions = []) {
+    const rejectedTextBlock = rejectedVersions.length ? `\n\nОТКЛОНЁННЫЕ ВЕРСИИ — НЕ ПОВТОРЯТЬ И НЕ ПЕРЕФРАЗИРОВАТЬ:\n${rejectedVersions.slice(-3).map((value, index) => `${index + 1}. ${String(value).slice(0, 1200)}`).join("\n\n")}\n` : "";
     const prompt =
       `Ты главный редактор премиального расследовательского медиа OSINT Editorial.\n\n` +
       `Подготовь полноценный черновик публикации на русском языке.\n\n` +
       `КАТЕГОРИЯ: ${item.category}\n` +
       `ТЕМА: ${item.title}\n\n` +
-      `ТРЕБОВАНИЯ К МАТЕРИАЛУ:\n` +
-      `1. Начни с сильного, но профессионального заголовка.\n` +
-      `2. Объясни проблему и её практическое значение.\n` +
-      `3. Раскрой тему последовательно, с конкретными примерами применения.\n` +
-      `4. Используй профессиональную терминологию, объясняя сложные понятия.\n` +
-      `5. Не выдумывай реальные события, компании, статистику и результаты расследований.\n` +
-      `6. Не выдавай предположения за установленные факты.\n` +
-      `7. Не раскрывай персональные данные частных лиц.\n` +
-      `8. Не добавляй хештеги.\n\n` +
+      `ОБЯЗАТЕЛЬНЫЕ РЕДАКЦИОННЫЕ ТРЕБОВАНИЯ:\n` +
+      `1. Строго раскрывай утверждённую тему, не подменяй её смежным сюжетом.\n` +
+      `2. Одна статья — одна центральная проблема и последовательная логика разбора.\n` +
+      `3. Используй естественный профессиональный русский язык без канцелярита и нагромождения терминов.\n` +
+      `4. Разделяй подтверждённые факты, индикаторы риска, гипотезы и выводы; объясняй ограничения методов.\n` +
+      `5. Отсутствие записи в одном реестре само по себе не доказывает незаконность деятельности или владения.\n` +
+      `6. Не выдумывай реальные события, компании, статистику, документы, цитаты и результаты расследований.\n` +
+      `7. Практический пример обозначай как условный учебный сценарий; не добавляй вымышленные детали под видом фактов. Если пример нельзя дать достоверно, приведи алгоритм проверки.\n` +
+      `8. Давай воспроизводимую последовательность: что проверить, в каком источнике, что сопоставить и что означает результат.\n` +
+      `9. Для существенных выводов указывай, какая дополнительная проверка нужна; не делай безосновательных юридических выводов.\n` +
+      `10. Объясняй сложные термины, не используй их ради эффекта.\n` +
+      `11. Не раскрывай персональные данные частных лиц и не предлагай незаконный доступ к закрытым данным.\n` +
+      `12. Не добавляй хештеги.\n\n` +
       `ОСОБЫЕ ТРЕБОВАНИЯ:\n` +
       `- Для OSINT описывай законные методы работы с открытыми источниками.\n` +
       `- Для Комплаенса раскрывай практические механизмы контроля и проверки.\n` +
@@ -1315,8 +1320,8 @@ export class ApprovalCoordinator {
       `ПРАКТИЧЕСКИЙ ПРИМЕР\n` +
       `ВЫВОД\n` +
       `ИСТОЧНИКИ ДЛЯ ПРОВЕРКИ\n\n` +
-      `В последнем разделе укажи названия подходящих первичных источников и официальных ресурсов. Не придумывай URL и не утверждай, что источники уже проверены.\n\n` +
-      `Подготовь содержательный материал объёмом примерно 2500–3000 знаков. Верни только текст публикации.`;
+      `В последнем разделе укажи конкретные названия подходящих первичных источников и поясни, какие сведения в них проверять. Не придумывай URL, номера документов и не утверждай, что источники уже проверены. Если юрисдикция не задана, не выдавай ресурс одной страны за универсальный.\n\n` +
+      `Не называй условный сценарий реальным кейсом. Перед ответом проверь фактическую осторожность, связность, соответствие утверждённой теме и отсутствие повторов. Объём — примерно 2500–3000 знаков. Верни только текст публикации.`;
 
     const result = await geminiGenerate(
       this.env,
@@ -1331,7 +1336,7 @@ export class ApprovalCoordinator {
     if (Array.from(result).length > 3700) {
       const shortened = await geminiGenerate(
         this.env,
-        `Сократи следующий материал до 3000 символов максимум, сохранив его структуру, основные выводы, практический пример и источники для проверки. Не добавляй новых фактов. Верни только сокращённый текст:\n\n${result}`,
+        `Сократи следующий материал до 3000 символов максимум, сохранив структуру, ограничения методов, различие фактов и гипотез, практический алгоритм и источники для проверки. Не добавляй фактов и не превращай гипотезы в утверждения. Верни только сокращённый текст:\n\n${result}`,
         { task: "shorten_publication" }
       );
 
@@ -1377,8 +1382,9 @@ export class ApprovalCoordinator {
   // AI VISUAL CONCEPT GENERATOR
   // ==================================================
 
-  async generateVisualBrief(item) {
+  async generateVisualBrief(item, rejectedVersions = item.rejected_visuals || []) {
     const styleInstructions = this.getVisualStyleInstructions();
+    const rejectedVisualBlock = rejectedVersions.length ? `\n\nОТКЛОНЁННЫЕ КОНЦЕПЦИИ — НЕ ПОВТОРЯТЬ СЮЖЕТ И КОМПОЗИЦИЮ:\n${rejectedVersions.slice(-3).map((value, index) => `${index + 1}. ${String(value).slice(0, 900)}`).join("\n\n")}\n` : "";
 
     const prompt =
       `Ты арт-директор премиального расследовательского медиа OSINT Editorial.\n\n` +
@@ -1387,6 +1393,13 @@ export class ApprovalCoordinator {
       `КАТЕГОРИЯ: ${item.category}\n\n` +
       `ТЕКСТ ПУБЛИКАЦИИ:\n${item.text_content || item.content}\n\n` +
       `${styleInstructions}\n\n` +
+      `РЕДАКЦИОННЫЕ ПРАВИЛА:\n` +
+      `1. Визуал точно соответствует утверждённой теме и статье, не усиливает выводы и не изображает гипотезы как доказанные факты.\n` +
+      `2. Используй одну ясную визуальную метафору или документальную сцену без нагромождения несвязанных объектов.\n` +
+      `3. Не выдумывай названия организаций, интерфейсы реальных систем, документы с читаемыми реквизитами, цифры, карты с фиктивными данными или доказательства.\n` +
+      `4. Заголовок и подзаголовок на изображении короткие, грамотные и точно отражают содержание статьи.\n` +
+      `5. Если статья описывает вероятностные признаки, визуал не должен создавать впечатление установленного нарушения или виновности.\n` +
+      `6. При повторной генерации создай заметно иную композицию и визуальный подход, сохранив утверждённую визуальную идентичность.\n\n` +
       `ПРАВИЛА ФОРМАТА:\n` +
       `1. Самостоятельно выбери один формат: ОДИНОЧНЫЙ ПОСТ или КАРУСЕЛЬ.\n` +
       `2. Выбирай карусель только тогда, когда тема действительно требует последовательного раскрытия нескольких самостоятельных смысловых частей.\n` +
@@ -1407,6 +1420,8 @@ export class ApprovalCoordinator {
       `ПРОМПТ ДЛЯ ГЕНЕРАЦИИ:\n` +
       `Для одиночного поста — один полный промпт.\n` +
       `Для карусели — отдельный промпт для каждого слайда с номером, заголовком, содержанием и визуальной композицией.\n\n` +
+      `${rejectedVisualBlock}\n` +
+      `Перед ответом проверь соответствие статьи, точность текста на изображении, отсутствие вымышленных фактов и отличие от отклонённых концепций.\n` +
       `Верни только готовое техническое задание. Не добавляй вступлений и заключений.`;
 
     const result = await geminiGenerate(
@@ -1469,6 +1484,78 @@ export class ApprovalCoordinator {
         }
       );
     });
+  }
+
+  // ==================================================
+  // ALTERNATIVE TEXT AFTER REJECTION
+  // ==================================================
+
+  async generateAlternativeText(itemId) {
+    const itemKey = `item:${itemId}`;
+    const item = await this.ctx.storage.get(itemKey);
+    if (!item || item.status !== "generating_alternative_text") return { ok: false, skipped: true };
+
+    try {
+      const rejected = Array.isArray(item.rejected_texts) ? item.rejected_texts : [];
+      const generatedText = await this.generateDraftText(item, rejected);
+      await this.ctx.storage.transaction(async (txn) => {
+        const current = await txn.get(itemKey);
+        if (!current || current.status !== "generating_alternative_text") return;
+        const timestamp = new Date().toISOString();
+        current.text_content = generatedText;
+        current.content = generatedText;
+        current.stage = "text";
+        current.status = "pending";
+        current.approval_id = crypto.randomUUID();
+        current.updated_at = timestamp;
+        current.text_generated_at = timestamp;
+        current.alternative_text_count = Number(current.alternative_text_count || 0) + 1;
+        await txn.put(itemKey, current);
+        await this.addEvent(txn, { item_id: current.id, stage: "text", action: "ai_alternative_text_generated", category: current.category });
+        await this.enqueue(txn, "sendMessage", approvalMessage(current, this.env.TELEGRAM_CHAT_ID));
+      });
+      return { ok: true };
+    } catch (error) {
+      console.error("Alternative text generation failed:", error.message);
+      await this.markGenerationFailed(itemId, "generating_alternative_text", "text", error);
+      return { ok: false, error: "alternative_text_generation_failed" };
+    }
+  }
+
+  // ==================================================
+  // ALTERNATIVE VISUAL AFTER REJECTION
+  // ==================================================
+
+  async generateAlternativeVisual(itemId) {
+    const itemKey = `item:${itemId}`;
+    const item = await this.ctx.storage.get(itemKey);
+    if (!item || item.status !== "generating_alternative_visual") return { ok: false, skipped: true };
+
+    try {
+      const rejected = Array.isArray(item.rejected_visuals) ? item.rejected_visuals : [];
+      const generatedVisual = await this.generateVisualBrief(item, rejected);
+      await this.ctx.storage.transaction(async (txn) => {
+        const current = await txn.get(itemKey);
+        if (!current || current.status !== "generating_alternative_visual") return;
+        const timestamp = new Date().toISOString();
+        current.visual_content = generatedVisual;
+        current.content = generatedVisual;
+        current.stage = "visual";
+        current.status = "pending";
+        current.approval_id = crypto.randomUUID();
+        current.updated_at = timestamp;
+        current.visual_generated_at = timestamp;
+        current.alternative_visual_count = Number(current.alternative_visual_count || 0) + 1;
+        await txn.put(itemKey, current);
+        await this.addEvent(txn, { item_id: current.id, stage: "visual", action: "ai_alternative_visual_generated", category: current.category });
+        await this.enqueue(txn, "sendMessage", approvalMessage(current, this.env.TELEGRAM_CHAT_ID));
+      });
+      return { ok: true };
+    } catch (error) {
+      console.error("Alternative visual generation failed:", error.message);
+      await this.markGenerationFailed(itemId, "generating_alternative_visual", "visual", error);
+      return { ok: false, error: "alternative_visual_generation_failed" };
+    }
   }
 
   // ==================================================
@@ -1552,7 +1639,7 @@ export class ApprovalCoordinator {
 
       console.log("AI VISUAL GENERATION STARTED:", itemId);
 
-      const generatedVisual = await this.generateVisualBrief(sourceItem);
+      const generatedVisual = await this.generateVisualBrief(sourceItem, Array.isArray(sourceItem.rejected_visuals) ? sourceItem.rejected_visuals : []);
 
       await this.ctx.storage.transaction(async (txn) => {
         const item = await txn.get(itemKey);
@@ -1746,12 +1833,28 @@ export class ApprovalCoordinator {
           nextItem = { ...item };
         }
 
-      } else if (action === "reject" && currentStage === "topic" && !item.is_test) {
-        item.rejected_topics = Array.isArray(item.rejected_topics)
-          ? item.rejected_topics
-          : [];
-        item.rejected_topics.push(item.title);
-        item.status = "generating_alternative_topic";
+      } else if (action === "reject" && !item.is_test) {
+        if (currentStage === "topic") {
+          item.rejected_topics = Array.isArray(item.rejected_topics) ? item.rejected_topics : [];
+          item.rejected_topics.push(item.title);
+          item.status = "generating_alternative_topic";
+        } else if (currentStage === "text") {
+          item.rejected_texts = Array.isArray(item.rejected_texts) ? item.rejected_texts : [];
+          item.rejected_texts.push(String(item.text_content || "").slice(0, 5000));
+          item.status = "generating_alternative_text";
+        } else if (currentStage === "visual") {
+          item.rejected_visuals = Array.isArray(item.rejected_visuals) ? item.rejected_visuals : [];
+          item.rejected_visuals.push(String(item.visual_content || "").slice(0, 4000));
+          item.status = "generating_alternative_visual";
+        } else if (currentStage === "final") {
+          item.rejected_texts = Array.isArray(item.rejected_texts) ? item.rejected_texts : [];
+          item.rejected_visuals = Array.isArray(item.rejected_visuals) ? item.rejected_visuals : [];
+          if (item.text_content) item.rejected_texts.push(String(item.text_content).slice(0, 5000));
+          if (item.visual_content) item.rejected_visuals.push(String(item.visual_content).slice(0, 4000));
+          item.status = "generating_alternative_text";
+        } else {
+          item.status = "rejected";
+        }
         item.decision_at = timestamp;
         delete item.approval_id;
 
@@ -1791,10 +1894,18 @@ export class ApprovalCoordinator {
                     : `Этап «${STAGE_NAMES[currentStage]}» одобрен.`
             )
           : (
-              action === "reject" && currentStage === "topic" && !item.is_test
-                ? "Тема отклонена. Подбираю другой вариант..."
+              action === "reject" && !item.is_test
+                ? currentStage === "topic"
+                  ? "Тема отклонена. Подбираю другой вариант..."
+                  : currentStage === "text"
+                    ? "Текст отклонён. Подготавливаю новую редакцию..."
+                    : currentStage === "visual"
+                      ? "Визуал отклонён. Разрабатываю другую концепцию..."
+                      : currentStage === "final"
+                        ? "Финальная версия отклонена. Перерабатываю текст и визуал..."
+                        : "Материал отклонён."
                 : action === "reject"
-                  ? "Материал отклонён. Дальнейшие этапы заблокированы."
+                  ? "Тестовый этап отклонён."
                   : "Материал отправлен на доработку. Дальнейшие этапы заблокированы."
             );
 
@@ -1868,6 +1979,16 @@ export class ApprovalCoordinator {
     if (result.status === "generating_alternative_topic") {
       await this.flushOutbox();
       await this.generateAlternativeTopic(result.item_id);
+    }
+
+    if (result.status === "generating_alternative_text") {
+      await this.flushOutbox();
+      await this.generateAlternativeText(result.item_id);
+    }
+
+    if (result.status === "generating_alternative_visual") {
+      await this.flushOutbox();
+      await this.generateAlternativeVisual(result.item_id);
     }
 
     if (result.status === "publication_approved") {
