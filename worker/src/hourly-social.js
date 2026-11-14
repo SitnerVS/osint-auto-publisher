@@ -222,7 +222,15 @@ export async function runHourlyTrend(coordinator, payload, deps) {
     }
 
     const text = normalizeText(candidate.text);
-    const selectedTrend = trends.find(item => item.id === String(candidate.trend_id)) || trends[0];
+    const selectedTrend = trends.find(item => item.id === String(candidate.trend_id));
+    if (!selectedTrend) {
+      await storage.put(slotKey, { status: "skipped", reason: "unknown_trend_id", created_at: new Date().toISOString() });
+      await deps.telegram(env, "sendMessage", {
+        chat_id: env.TELEGRAM_CHAT_ID,
+        text: "Черновик не удалось связать с реальным трендом Threads. Публикацию пропустил."
+      });
+      return { ok: true, skipped: true, reason: "unknown_trend_id" };
+    }
     if (!isLocallySafe(text)) {
       await storage.put(slotKey, { status: "skipped", reason: "local_safety_filter", created_at: new Date().toISOString() });
       await deps.telegram(env, "sendMessage", {
