@@ -1307,6 +1307,7 @@ export class ApprovalCoordinator {
       `10. Объясняй сложные термины, не используй их ради эффекта.\n` +
       `11. Не раскрывай персональные данные частных лиц и не предлагай незаконный доступ к закрытым данным.\n` +
       `12. Не добавляй хештеги.\n\n` +
+      `${rejectedTextBlock}` +
       `ОСОБЫЕ ТРЕБОВАНИЯ:\n` +
       `- Для OSINT описывай законные методы работы с открытыми источниками.\n` +
       `- Для Комплаенса раскрывай практические механизмы контроля и проверки.\n` +
@@ -1837,20 +1838,25 @@ export class ApprovalCoordinator {
         if (currentStage === "topic") {
           item.rejected_topics = Array.isArray(item.rejected_topics) ? item.rejected_topics : [];
           item.rejected_topics.push(item.title);
+          item.rejected_topics = item.rejected_topics.slice(-10);
           item.status = "generating_alternative_topic";
         } else if (currentStage === "text") {
           item.rejected_texts = Array.isArray(item.rejected_texts) ? item.rejected_texts : [];
           item.rejected_texts.push(String(item.text_content || "").slice(0, 5000));
+          item.rejected_texts = item.rejected_texts.slice(-5);
           item.status = "generating_alternative_text";
         } else if (currentStage === "visual") {
           item.rejected_visuals = Array.isArray(item.rejected_visuals) ? item.rejected_visuals : [];
           item.rejected_visuals.push(String(item.visual_content || "").slice(0, 4000));
+          item.rejected_visuals = item.rejected_visuals.slice(-5);
           item.status = "generating_alternative_visual";
         } else if (currentStage === "final") {
           item.rejected_texts = Array.isArray(item.rejected_texts) ? item.rejected_texts : [];
           item.rejected_visuals = Array.isArray(item.rejected_visuals) ? item.rejected_visuals : [];
           if (item.text_content) item.rejected_texts.push(String(item.text_content).slice(0, 5000));
           if (item.visual_content) item.rejected_visuals.push(String(item.visual_content).slice(0, 4000));
+          item.rejected_texts = item.rejected_texts.slice(-5);
+          item.rejected_visuals = item.rejected_visuals.slice(-5);
           item.status = "generating_alternative_text";
         } else {
           item.status = "rejected";
