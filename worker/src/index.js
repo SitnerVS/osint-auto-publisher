@@ -164,7 +164,7 @@ async function telegram(env, method, data) {
 // CLOUDFLARE WORKERS AI — IMAGE GENERATION
 // ======================================================
 
-async function generateCloudflareImage(env, prompt) {
+async function generateCloudflareImage(env, prompt, options = {}) {
   if (!env.AI || typeof env.AI.run !== "function") {
     throw new Error("Cloudflare Workers AI binding AI is not configured");
   }
@@ -176,7 +176,32 @@ async function generateCloudflareImage(env, prompt) {
   form.append("steps", "25");
   form.append("guidance", "4");
 
-  // FLUX.2 Dev supports higher-fidelity generation and physical-world grounding.
+  if (options.useStyleReference) {
+    let referenceBytes = await env.EDITORIAL_DATA.get("osintner:style-reference:v1", "arrayBuffer");
+    if (!referenceBytes) {
+      const referenceResponse = await fetch(
+        "https://raw.githubusercontent.com/SitnerVS/osint-auto-publisher/main/worker/assets/osintner-style-reference.jpg"
+      );
+      if (!referenceResponse.ok) {
+        throw new Error("OSINTNER style reference could not be loaded: HTTP " + referenceResponse.status);
+      }
+      referenceBytes = await referenceResponse.arrayBuffer();
+      await env.EDITORIAL_DATA.put("osintner:style-reference:v1", referenceBytes, {
+        expirationTtl: 60 * 60 * 24 * 90
+      });
+    }
+    form.append(
+      "input_image_0",
+      new Blob([referenceBytes], { type: "image/jpeg" }),
+      "osintner-style-reference.jpg"
+    );
+    form.set(
+      "prompt",
+      "Use reference image 0 ONLY for OSINTNER photographic style: cold blue-gray color grading, dark navy atmosphere, restrained cinematic documentary lighting, realistic photographic materials, controlled contrast and editorial restraint. Do not copy the reference image's person, phone, buildings, objects, framing, layout, text, logos, symbols or subject matter. Create a completely new scene based only on the prompt below. " + prompt
+    );
+  }
+
+  // FLUX.2 Dev accepts multipart form data and up to four reference images.
   const serialized = new Response(form);
   const body = serialized.body;
   const contentType = serialized.headers.get("content-type");
@@ -308,7 +333,7 @@ async function generateAndStoreVisualAssets(env, itemId, plan) {
       "ИСКЛЮЧИТЬ: cyberpunk, hacker in hoodie, matrix green rain, neon RGB, futuristic holograms, sci-fi interface, technical dashboards, complex HUD, warm brown color grading, golden cinematic lighting, cartoon, anime, plastic CGI, generic stock photography, visual clutter.",
       "Белая жирная русская типографика, оранжевые выделения #F26A1B и тонкая оранжевая линия относятся только к последующему отдельному этапу вёрстки и НЕ должны присутствовать в генерируемой фотографии."
     ].join("\n");
-    const bytes = await generateCloudflareImage(env, prompt);
+    const bytes = await generateCloudflareImage(env, prompt, { useStyleReference: true });
     const id = crypto.randomUUID().replace(/-/g, "");
     await env.EDITORIAL_DATA.put("social-image:" + id, bytes, { expirationTtl: 60 * 60 * 24 * 90 });
     assets.push({
@@ -1544,7 +1569,7 @@ export class ApprovalCoordinator {
       `Позиционирование: ${identity.brand_positioning || "Premium investigative editorial media"}.\n` +
       `Визуальный принцип: ${identity.visual_principle || "Premium investigative documentary photography"}.\n` +
       `Ключевые темы: ${(identity.visual_keywords || []).join(", ")}.\n` +
-      `Визуальный язык: премиальная фотография для обложки серьёзного документального фильма-расследования или делового расследования; холодная тёмная navy и blue-gray палитра; реалистичная корпоративная документальная съёмка; сдержанный драматичный свет; фактурность, глубина, точная композиция, естественные материалы и правдоподобные детали. Изображение должно выглядеть как профессиональная редакционная фотография, а не как иллюстрация, рекламный сток или CGI.\n\n` +
+      `Визуальный язык: как в утверждённой обложке OSINTNER «Пять шагов проверки предложения»: холодная тёмная сине-графитовая документальная фотография, глубокие navy-тени, стальные blue-gray оттенки, мягкий холодный свет на стекле и металле, выразительная глубина резкости, реалистичная городская или деловая среда, точечные оранжевые акценты только в последующей вёрстке. Кадр должен выглядеть как фотография для премиального расследовательского журнала, а не как CGI, иллюстрация или рекламный сток.\n\n` +
       `АБСОЛЮТНЫЙ ЗАПРЕТ НА ЛЮБОЙ ТЕКСТ В ИЗОБРАЖЕНИИ:\n` +
       `Не генерировать вообще никакие символы или надписи: ни букв, ни цифр, ни слов, ни заголовков, ни подзаголовков, ни подписей, ни меток, ни псевдотекста, ни типографики, ни текста на бумагах, экранах, документах, табличках, вывесках, зданиях, одежде или предметах. Не создавать имитацию букв, нечитаемые символы, случайные знаки или водяные знаки. Изображение должно быть полностью свободно от текста.\n` +
       `Не создавать логотип OSINTNER, любые другие логотипы, брендовые символы, названия компаний, социальные никнеймы, подписи или декоративные брендовые элементы.\n` +
