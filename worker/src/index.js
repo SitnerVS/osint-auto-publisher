@@ -33,6 +33,52 @@ async function telegram(env, method, data) {
   return result;
 }
 
+async function geminiGenerate(env, prompt) {
+  if (!env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not configured");
+  }
+
+  const response = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": env.GEMINI_API_KEY
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: prompt }]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1500
+        }
+      })
+    }
+  );
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    console.error("Gemini API error:", response.status);
+    throw new Error("Gemini generation failed");
+  }
+
+  const text = result.candidates?.[0]?.content?.parts
+    ?.map(part => part.text || "")
+    .join("")
+    .trim();
+
+  if (!text) {
+    throw new Error("Gemini returned empty response");
+  }
+
+  return text;
+}
+
 function approvalMessage(item, chatId) {
   return {
     chat_id: chatId,
