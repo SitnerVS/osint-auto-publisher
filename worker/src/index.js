@@ -350,7 +350,9 @@ export default {
               "Система согласований готова.\n\n" +
               "Доступные команды:\n" +
               "/test — тест согласования\n" +
+              "/generate — генерация новой темы\n" +
               "/ai_test — проверка Gemini\n" +
+              "/settings — просмотр настроек\n" +
               "/id — проверка Telegram ID"
           });
         }
@@ -395,7 +397,21 @@ export default {
             chat_id: chatId
           });
         }
+        // /GENERATE
 
+        else if (command === "/generate") {
+          console.log("CONTENT GENERATION REQUESTED");
+
+          await telegram(env, "sendMessage", {
+            chat_id: chatId,
+            text: "Запускаю генерацию новой темы. Подожди..."
+          });
+
+          await callCoordinator(env, "/generate", {
+            user_id: userId,
+            chat_id: chatId
+          });
+        }
         // /AI_TEST
 
         else if (command === "/ai_test") {
@@ -444,8 +460,11 @@ export default {
               "Доступные команды:\n" +
               "/start\n" +
               "/test\n" +
+              "/generate\n" +
+              "/settings\n" +
               "/ai_test\n" +
               "/id"
+             
           });
         }
       }
@@ -497,9 +516,10 @@ export class ApprovalCoordinator {
 
     const path = new URL(request.url).pathname;
 
-    if (
+        if (
       path !== "/callback" &&
-      path !== "/test"
+      path !== "/test" &&
+      path !== "/generate"
     ) {
       return new Response("Not found", {
         status: 404
@@ -518,10 +538,15 @@ export class ApprovalCoordinator {
     }
 
     try {
-      const result =
-        path === "/test"
-          ? await this.handleTest(payload)
-          : await this.handleCallback(payload);
+            let result;
+
+      if (path === "/test") {
+        result = await this.handleTest(payload);
+      } else if (path === "/generate") {
+        result = await this.handleGenerate(payload);
+      } else {
+        result = await this.handleCallback(payload);
+      }
 
       if (!result.ok) {
         return json(result, 403);
@@ -576,6 +601,126 @@ export class ApprovalCoordinator {
         timestamp: new Date().toISOString()
       }
     );
+  }
+
+  // ==================================================
+  // AI TOPIC GENERATOR
+  // ==================================================
+
+  async handleGenerate(payload) {
+    const expectedChatId = String(
+      this.env.TELEGRAM_CHAT_ID ?? ""
+    );
+
+    const chatId = String(payload.chat_id ?? "");
+    const userId = String(payload.user_id ?? "");
+
+    if (
+      !expectedChatId ||
+      chatId !== expectedChatId ||
+      userId !== expectedChatId
+    ) {
+      return {
+        ok: false,
+        error: "Unauthorized"
+      };
+    }
+
+    const topics = SETTINGS.content_strategy.topic_rotation;
+
+    if (!Array.isArray(topics) || topics.length === 0) {
+      throw new Error("Topic rotation is not configured");
+    }
+
+    const rotationKey = "topic_rotation_index";
+
+    const savedIndex = await this.ctx.storage.get(rotationKey);
+
+    const index = Number.isInteger(savedIndex)
+      ? savedIndex % topics.length
+      : 0;
+
+    const category = topics[index];
+
+    const prompt =
+      `Ты редактор профессионального расследовательского медиа OSINT Editorial.\n\n` +
+      `Придумай одну оригинальную тему для публикации в категории: ${category}.\n\n` +
+      `Требования:\n` +
+      `- Язык: русский.\n` +
+      `- Тема должна быть конкретной, содержательной и интересной.\n` +
+      `- Для OSINT используй реальные сценарии применения открытых источников.\n` +
+      `- Для Комплаенса раскрывай практические вопросы контроля, проверки и управления рисками.\n` +
+      `- Для Антифрода раскрывай реальные механизмы мошенничества и способы противодействия.\n` +
+      `- Не выдумывай конкретные события, компании, статистику или расследования.\n` +
+      `- Не повторяй банальные темы.\n` +
+      `- Верни только название темы, без пояснений и нумерации.`;
+
+    const generatedTopic = await geminiGenerate(
+      this.env,
+      prompt
+    );
+
+    const title = generatedTopic
+      .replace(/^["«]|["»]$/g, "")
+      .trim();
+
+    if (!title) {
+      throw new Error("Gemini generated an empty topic");
+    }
+
+    const timestamp = new Date().toISOString();
+
+    const item = {
+      id: `material-${crypto.randomUUID().slice(0, 8)}`,
+      content: `КАТЕГОРИЯ: ${category}\n\nТЕМА: ${title}`,
+      category,
+      title,
+      stage: "topic",
+      status: "pending",
+      history: [],
+      created_at: timestamp,
+      updated_at: timestamp,
+      approval_id: crypto.randomUUID()
+    };
+
+    await this.ctx.storage.transaction(
+      async (txn) => {
+        await txn.put(
+          `item:${item.id}`,
+          item
+        );
+
+        await txn.put(
+          rotationKey,
+          (index + 1) % topics.length
+        );
+
+        await this.addEvent(txn, {
+          item_id: item.id,
+          stage: "topic",
+          action: "ai_topic_generated",
+          category,
+          user_id: userId
+        });
+
+        await this.enqueue(
+          txn,
+          "sendMessage",
+          approvalMessage(
+            item,
+            expectedChatId
+          )
+        );
+      }
+    );
+
+    return {
+      ok: true,
+      status: "pending",
+      item_id: item.id,
+      category,
+      title
+    };
   }
 
   // ==================================================
