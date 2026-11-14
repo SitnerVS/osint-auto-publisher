@@ -705,7 +705,7 @@ export default {
               "/test — тест согласования\n" +
               "/visual_test — безопасный тест генерации визуала\n" +
               "/generate — генерация новой темы\n" +
-              "/publish_retry ID — продолжить обработку изображения Threads\n" +
+              "/publish_retry ID — безопасно повторить попытку Threads\n" +
               "/ai_test — проверка Gemini\n" +
               "/image_test — тест генерации изображения\n" +
               "/settings — просмотр настроек\n" +
@@ -1011,8 +1011,8 @@ export class ApprovalCoordinator {
         } else {
           const itemId = String(payload.item_id || "");
           const item = await this.ctx.storage.get("item:" + itemId);
-          if (!item || item.status !== "publication_approved" || item.threads_publication_status !== "created") {
-            result = { ok: false, error: "No resumable Threads image container exists for this item" };
+          if (!item || item.status !== "publication_approved" || !["created", "failed"].includes(item.threads_publication_status)) {
+            result = { ok: false, error: "No safely retryable Threads publication exists for this item" };
           } else {
             result = await this.publishApprovedThreadsPost(itemId);
           }
