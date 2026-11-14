@@ -762,6 +762,20 @@ export default {
           });
         }
 
+        else if (command === "/threads_status") {
+          const status = await callCoordinator(env, "/threads/status", {
+            user_id: userId,
+            chat_id: chatId
+          });
+          const expiry = status.expires_at ? new Date(status.expires_at).toLocaleString("ru-RU", { timeZone: SETTINGS.timezone }) : "";
+          await telegram(env, "sendMessage", {
+            chat_id: chatId,
+            text: status.connected
+              ? "THREADS STATUS\\nПодключённый аккаунт: @" + String(status.username || "имя не получено") + "\\nТокен: " + (status.expired ? "истёк" : "действителен") + (expiry ? "\\nСрок действия до: " + expiry : "")
+              : "THREADS STATUS\\nАккаунт Threads пока не авторизован. Для публикаций требуется подключение через /threads/connect."
+          });
+        }
+
         else if (command === "/publish_retry") {
           const itemId = String(message.text || "").trim().split(/\s+/)[1] || "";
           if (!/^material-[a-f0-9-]+$/i.test(itemId) && !/^visual-test-[a-f0-9-]+$/i.test(itemId)) {
@@ -974,6 +988,7 @@ export class ApprovalCoordinator {
       path !== "/visual-test" &&
       path !== "/generate" &&
       path !== "/publish-retry" &&
+      path !== "/threads/status" &&
       path !== "/threads/oauth/save-state" &&
       path !== "/threads/oauth/consume-state" &&
       path !== "/threads/oauth/save-token" &&
@@ -1004,6 +1019,21 @@ export class ApprovalCoordinator {
         result = await this.handleVisualTest(payload);
       } else if (path === "/generate") {
         result = await this.handleGenerate(payload);
+      } else if (path === "/threads/status") {
+        const expectedId = String(this.env.TELEGRAM_CHAT_ID || "");
+        if (String(payload.chat_id || "") !== expectedId || String(payload.user_id || "") !== expectedId) {
+          result = { ok: false, error: "Unauthorized" };
+        } else {
+          const token = await this.ctx.storage.get("threads:oauth:token");
+          const expiresAt = Number(token?.expires_at || 0);
+          result = {
+            ok: true,
+            connected: Boolean(token?.access_token && token?.user_id),
+            username: String(token?.username || ""),
+            expires_at: expiresAt || null,
+            expired: !expiresAt || expiresAt <= Date.now()
+          };
+        }
       } else if (path === "/publish-retry") {
         const expectedId = String(this.env.TELEGRAM_CHAT_ID || "");
         if (String(payload.chat_id || "") !== expectedId || String(payload.user_id || "") !== expectedId) {
