@@ -272,8 +272,8 @@ function formatVisualPlan(plan) {
     "КОНЦЕПЦИЯ: " + String(plan.concept || "").trim(),
     "ОБОСНОВАНИЕ: " + String(plan.rationale || "").trim(),
     "ОБЩИЕ ПАРАМЕТРЫ: один вертикальный векторный редакционный визуал 4:5; тёмная палитра OSINTNER #0B0D0F, #15181B, #E7E9EA, #858B91; оранжевый акцент #FF5A36; точечный приглушённый зелёный #A7D65C только для отметки подтверждения; без текста и логотипов",
-    "СЛАЙДЫ:",
-    ...plan.slides.map((slide, index) => (index + 1) + ". " + String(slide.title || ("Слайд " + (index + 1))).trim() + (slide.subtitle ? " — " + String(slide.subtitle).trim() : ""))
+    "ЕДИНСТВЕННАЯ ВИЗУАЛЬНАЯ ИДЕЯ:",
+    String(plan.slides[0]?.title || "Тематическая векторная иллюстрация").trim()
   ].join("\n");
 }
 
