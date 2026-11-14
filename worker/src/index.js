@@ -339,17 +339,17 @@ function approvalMessage(item, chatId) {
       inline_keyboard: [
         [
           {
-            text: "Одобрить",
+            text: "Одобрено — дальше",
             callback_data: `approve:${item.id}:${item.approval_id}`
           },
           {
-            text: "Отклонить",
+            text: "Отклонить — стоп",
             callback_data: `reject:${item.id}:${item.approval_id}`
           }
         ],
         [
           {
-            text: "На доработку",
+            text: "На доработку — ещё вариант",
             callback_data: `revise:${item.id}:${item.approval_id}`
           }
         ]
@@ -2010,7 +2010,15 @@ export class ApprovalCoordinator {
           nextItem = { ...item };
         }
 
-      } else if (action === "reject" && !item.is_test) {
+      } else if (action === "reject") {
+        // Reject always terminates this material; no alternative is generated.
+        item.status = "rejected";
+        item.rejected_at = timestamp;
+        item.decision_at = timestamp;
+        delete item.approval_id;
+
+      } else if (action === "revise") {
+        // Revision is the only action that asks AI for another version.
         if (currentStage === "topic") {
           item.rejected_topics = Array.isArray(item.rejected_topics) ? item.rejected_topics : [];
           item.rejected_topics.push(item.title);
@@ -2035,17 +2043,8 @@ export class ApprovalCoordinator {
           item.rejected_visuals = item.rejected_visuals.slice(-5);
           item.status = "generating_alternative_text";
         } else {
-          item.status = "rejected";
+          item.status = "revision_requested";
         }
-        item.decision_at = timestamp;
-        delete item.approval_id;
-
-      } else {
-        item.status =
-          action === "reject"
-            ? "rejected"
-            : "revision_requested";
-
         item.decision_at = timestamp;
         delete item.approval_id;
       }
@@ -2076,19 +2075,17 @@ export class ApprovalCoordinator {
                     : `Этап «${STAGE_NAMES[currentStage]}» одобрен.`
             )
           : (
-              action === "reject" && !item.is_test
-                ? currentStage === "topic"
-                  ? "Тема отклонена. Подбираю другой вариант..."
+              action === "reject"
+                ? "Материал отклонён. Работа по нему остановлена; новые варианты создаваться не будут."
+                : currentStage === "topic"
+                  ? "Материал отправлен на доработку. Подготавливаю другой вариант темы..."
                   : currentStage === "text"
-                    ? "Текст отклонён. Подготавливаю новую редакцию..."
+                    ? "Материал отправлен на доработку. Подготавливаю другую редакцию текста..."
                     : currentStage === "visual"
-                      ? "Визуал отклонён. Разрабатываю другую концепцию..."
+                      ? "Материал отправлен на доработку. Разрабатываю другую визуальную концепцию..."
                       : currentStage === "final"
-                        ? "Финальная версия отклонена. Перерабатываю текст и визуал..."
-                        : "Материал отклонён."
-                : action === "reject"
-                  ? "Тестовый этап отклонён."
-                  : "Материал отправлен на доработку. Дальнейшие этапы заблокированы."
+                        ? "Материал отправлен на доработку. Подготавливаю новую редакцию..."
+                        : "Материал отправлен на доработку. Подготавливаю другой вариант."
             );
 
       await this.enqueue(txn, "answerCallbackQuery", {
