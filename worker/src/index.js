@@ -409,9 +409,131 @@ async function callCoordinator(env, path, payload) {
 export default {
   async fetch(request, env) {
     if (request.method === "GET") {
-      return new Response(
-        "OSINT Editorial Gateway is running."
-      );
+      const url = new URL(request.url);
+      const path = url.pathname;
+      const redirectUri = "https://osint-telegram-gateway-staging.vssitner.workers.dev/threads/callback";
+
+      if (path === "/threads/connect") {
+        if (!env.THREADS_APP_ID || !env.THREADS_APP_SECRET) {
+          return new Response("Threads API credentials are not configured.", { status: 500 });
+        }
+
+        try {
+          const state = crypto.randomUUID();
+          await callCoordinator(env, "/threads/oauth/save-state", {
+            state,
+            created_at: Date.now()
+          });
+
+          const authorizeUrl = new URL("https://threads.net/oauth/authorize");
+          authorizeUrl.searchParams.set("client_id", env.THREADS_APP_ID);
+          authorizeUrl.searchParams.set("redirect_uri", redirectUri);
+          authorizeUrl.searchParams.set("scope", "threads_basic,threads_content_publish");
+          authorizeUrl.searchParams.set("response_type", "code");
+          authorizeUrl.searchParams.set("state", state);
+
+          return Response.redirect(authorizeUrl.toString(), 302);
+        } catch (error) {
+          console.error("Threads OAuth start failed:", error.message);
+          return new Response("Could not start Threads authorization. Check Worker configuration.", { status: 500 });
+        }
+      }
+
+      if (path === "/threads/callback") {
+        const oauthError = url.searchParams.get("error");
+        if (oauthError) {
+          return new Response("Threads authorization was not completed. You can close this page.", { status: 400 });
+        }
+
+        const code = url.searchParams.get("code");
+        const state = url.searchParams.get("state");
+
+        if (!code || !state) {
+          return new Response("Missing Threads authorization code or state.", { status: 400 });
+        }
+
+        try {
+          await callCoordinator(env, "/threads/oauth/consume-state", { state });
+
+          const tokenForm = new URLSearchParams({
+            client_id: env.THREADS_APP_ID,
+            client_secret: env.THREADS_APP_SECRET,
+            grant_type: "authorization_code",
+            redirect_uri: redirectUri,
+            code
+          });
+
+          const shortTokenResponse = await fetch("https://graph.threads.net/oauth/access_token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: tokenForm
+          });
+
+          if (!shortTokenResponse.ok) {
+            console.error("Threads short-lived token exchange failed:", shortTokenResponse.status);
+            return new Response("Threads authorization succeeded, but token exchange failed. Check Meta app settings and the registered redirect URI.", { status: 502 });
+          }
+
+          const shortToken = await shortTokenResponse.json();
+          if (!shortToken.access_token || !shortToken.user_id) {
+            console.error("Threads short-lived token response was incomplete.");
+            return new Response("Meta returned an incomplete authorization response.", { status: 502 });
+          }
+
+          const longTokenUrl = new URL("https://graph.threads.net/access_token");
+          longTokenUrl.searchParams.set("grant_type", "th_exchange_token");
+          longTokenUrl.searchParams.set("client_secret", env.THREADS_APP_SECRET);
+          longTokenUrl.searchParams.set("access_token", shortToken.access_token);
+
+          const longTokenResponse = await fetch(longTokenUrl.toString());
+          if (!longTokenResponse.ok) {
+            console.error("Threads long-lived token exchange failed:", longTokenResponse.status);
+            return new Response("Authorization succeeded, but the long-lived token could not be issued. Please retry.", { status: 502 });
+          }
+
+          const longToken = await longTokenResponse.json();
+          if (!longToken.access_token) {
+            console.error("Threads long-lived token response was incomplete.");
+            return new Response("Meta did not return a long-lived access token.", { status: 502 });
+          }
+
+          let username = "";
+          try {
+            const profileUrl = new URL("https://graph.threads.net/v1.0/me");
+            profileUrl.searchParams.set("fields", "id,username");
+            profileUrl.searchParams.set("access_token", longToken.access_token);
+            const profileResponse = await fetch(profileUrl.toString());
+            if (profileResponse.ok) {
+              const profile = await profileResponse.json();
+              username = String(profile.username || "");
+            }
+          } catch (profileError) {
+            console.error("Threads profile lookup failed:", profileError.message);
+          }
+
+          const expiresIn = Number(longToken.expires_in || 5184000);
+          await callCoordinator(env, "/threads/oauth/save-token", {
+            access_token: longToken.access_token,
+            user_id: String(shortToken.user_id),
+            username,
+            token_type: longToken.token_type || "bearer",
+            expires_at: Date.now() + expiresIn * 1000,
+            saved_at: Date.now()
+          });
+
+          const accountLabel = username ? "@" + username : "аккаунт Threads";
+          const expiryDate = new Date(Date.now() + expiresIn * 1000).toLocaleDateString("ru-RU");
+          return new Response(
+            "Threads успешно подключён: " + accountLabel + ". Долгосрочный токен сохранён на стороне Worker до " + expiryDate + ". Эту страницу можно закрыть.",
+            { headers: { "Content-Type": "text/plain; charset=utf-8" } }
+          );
+        } catch (error) {
+          console.error("Threads OAuth callback failed:", error.message);
+          return new Response("Threads authorization could not be completed. Check that the redirect URI is registered and try again.", { status: 400 });
+        }
+      }
+
+      return new Response("OSINT Editorial Gateway is running.");
     }
 
     if (request.method !== "POST") {
@@ -706,7 +828,10 @@ export class ApprovalCoordinator {
     if (
       path !== "/callback" &&
       path !== "/test" &&
-      path !== "/generate"
+      path !== "/generate" &&
+      path !== "/threads/oauth/save-state" &&
+      path !== "/threads/oauth/consume-state" &&
+      path !== "/threads/oauth/save-token"
     ) {
       return new Response("Not found", {
         status: 404
@@ -731,6 +856,40 @@ export class ApprovalCoordinator {
         result = await this.handleTest(payload);
       } else if (path === "/generate") {
         result = await this.handleGenerate(payload);
+      } else if (path === "/threads/oauth/save-state") {
+        const state = String(payload.state || "");
+        if (!/^[0-9a-f-]{36}$/i.test(state)) {
+          result = { ok: false, error: "Invalid OAuth state" };
+        } else {
+          await this.ctx.storage.put("threads:oauth:state:" + state, {
+            created_at: Number(payload.created_at || Date.now())
+          });
+          result = { ok: true };
+        }
+      } else if (path === "/threads/oauth/consume-state") {
+        const state = String(payload.state || "");
+        const stateKey = "threads:oauth:state:" + state;
+        const savedState = await this.ctx.storage.get(stateKey);
+        await this.ctx.storage.delete(stateKey);
+        if (!savedState || Date.now() - Number(savedState.created_at || 0) > 10 * 60 * 1000) {
+          result = { ok: false, error: "OAuth state is invalid or expired" };
+        } else {
+          result = { ok: true };
+        }
+      } else if (path === "/threads/oauth/save-token") {
+        if (!payload.access_token || !payload.user_id || !payload.expires_at) {
+          result = { ok: false, error: "Incomplete Threads token data" };
+        } else {
+          await this.ctx.storage.put("threads:oauth:token", {
+            access_token: String(payload.access_token),
+            user_id: String(payload.user_id),
+            username: String(payload.username || ""),
+            token_type: String(payload.token_type || "bearer"),
+            expires_at: Number(payload.expires_at),
+            saved_at: Number(payload.saved_at || Date.now())
+          });
+          result = { ok: true };
+        }
       } else {
         result = await this.handleCallback(payload);
       }
