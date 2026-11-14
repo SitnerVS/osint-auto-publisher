@@ -268,7 +268,7 @@ async function telegramSendVisualPreview(env, chatId, images, caption) {
 }
 
 function parseVisualPlan(raw) {
-  const source = String(raw || "").trim().replace(/^\`\`\`(?:json)?\s*/i, "").replace(/\s*\`\`\`$/, "");
+  const source = String(raw || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const start = source.indexOf("{"), end = source.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("Visual plan is not valid JSON");
   const plan = JSON.parse(source.slice(start, end + 1));
@@ -1616,7 +1616,7 @@ export class ApprovalCoordinator {
   // ==================================================
 
   async generateAlternativeVisual(itemId) {
-    const itemKey = \`item:\${itemId}\`;
+    const itemKey = `item:${itemId}`;
     const item = await this.ctx.storage.get(itemKey);
     if (!item || item.status !== "generating_alternative_visual") return { ok: false, skipped: true };
     try {
@@ -1720,7 +1720,7 @@ export class ApprovalCoordinator {
   // ==================================================
 
   async runVisualGeneration(itemId) {
-    const itemKey = \`item:\${itemId}\`;
+    const itemKey = `item:${itemId}`;
     try {
       const sourceItem = await this.ctx.storage.get(itemKey);
       if (!sourceItem) throw new Error("Material not found");
