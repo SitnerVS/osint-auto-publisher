@@ -201,13 +201,20 @@ export default {
               "OSINT Editorial подключён.\n" +
               "Система согласований готова."
           });
-        } else if (
-          allowed &&
-          message.text === "/test"
-        ) {
+                } else if (allowed && message.text === "/test") {
           await callCoordinator(env, "/test", {
             user_id: userId,
             chat_id: chatId
+          });
+        } else if (allowed && message.text === "/ai_test") {
+          const answer = await geminiGenerate(
+            env,
+            "Ты OSINT-аналитик. Напиши краткий тестовый материал на русском языке: три способа проверить цифровой след компании из открытых источников. Не выдумывай факты. Используй нумерованный список."
+          );
+
+          await telegram(env, "sendMessage", {
+            chat_id: chatId,
+            text: answer
           });
         }
       }
