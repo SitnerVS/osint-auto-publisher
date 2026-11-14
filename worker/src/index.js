@@ -94,7 +94,11 @@ function getApprovalContent(item) {
   }
 
   if (item.stage === "visual") {
-    return item.visual_content || item.content || "";
+    return (
+      String(item.visual_content || item.content || "") +
+      "\n\nПОДПИСЬ ЭТОГО ЖЕ ПОСТА THREADS (ОДНО ИЗОБРАЖЕНИЕ + ЭТОТ ТЕКСТ):\n" +
+      String(item.text_content || "").trim()
+    );
   }
 
   if (item.stage === "final") {
@@ -249,9 +253,10 @@ async function telegramSendMediaGroup(env, chatId, images, caption) {
 }
 
 async function telegramSendVisualPreview(env, chatId, images, caption) {
-  if (!Array.isArray(images) || images.length === 0) throw new Error("Visual preview has no images");
-  if (images.length === 1) return telegramSendPhoto(env, chatId, images[0].bytes, String(caption || "").slice(0, 900));
-  return telegramSendMediaGroup(env, chatId, images, caption);
+  if (!Array.isArray(images) || images.length !== 1) {
+    throw new Error("OSINTNER preview must contain exactly one image for one Threads post");
+  }
+  return telegramSendPhoto(env, chatId, images[0].bytes, String(caption || "").slice(0, 1024));
 }
 
 function parseVisualPlan(raw) {
@@ -1799,9 +1804,12 @@ export class ApprovalCoordinator {
     if (!item || item.status !== "generating_alternative_visual") return { ok: false, skipped: true };
     try {
       const plan = await this.generateVisualBrief(item, Array.isArray(item.rejected_visuals) ? item.rejected_visuals : []);
-      const assets = await generateAndStoreVisualAssets(this.env, itemId, plan);
-      const images = await Promise.all(assets.map(async asset => ({ ...asset, bytes: await this.env.EDITORIAL_DATA.get("social-image:" + asset.id, "arrayBuffer") })));
-      await telegramSendVisualPreview(this.env, this.env.TELEGRAM_CHAT_ID, images, "ПРЕДПРОСМОТР НОВОГО ВИЗУАЛА\n" + String(plan.concept || "").slice(0, 700));
+      const assets = await generateAndStoreVisualAssets(this.env, itemId, plan, item);
+      if (assets.length !== 1 || !item.text_content || [...String(item.text_content)].length > 500) {
+        throw new Error("A Threads post must contain exactly one image and one caption of no more than 500 characters");
+      }
+      const images = [{ ...assets[0], bytes: await this.env.EDITORIAL_DATA.get("social-image:" + assets[0].id, "arrayBuffer") }];
+      await telegramSendVisualPreview(this.env, this.env.TELEGRAM_CHAT_ID, images, String(item.text_content).trim());
       await this.ctx.storage.transaction(async txn => {
         const current = await txn.get(itemKey);
         if (!current || current.status !== "generating_alternative_visual") return;
@@ -1904,9 +1912,12 @@ export class ApprovalCoordinator {
       if (!sourceItem) throw new Error("Material not found");
       console.log("AI VISUAL GENERATION STARTED:", itemId);
       const plan = await this.generateVisualBrief(sourceItem, Array.isArray(sourceItem.rejected_visuals) ? sourceItem.rejected_visuals : []);
-      const assets = await generateAndStoreVisualAssets(this.env, itemId, plan);
-      const images = await Promise.all(assets.map(async asset => ({ ...asset, bytes: await this.env.EDITORIAL_DATA.get("social-image:" + asset.id, "arrayBuffer") })));
-      await telegramSendVisualPreview(this.env, this.env.TELEGRAM_CHAT_ID, images, "ПРЕДПРОСМОТР ВИЗУАЛА\n" + String(plan.concept || "").slice(0, 700));
+      const assets = await generateAndStoreVisualAssets(this.env, itemId, plan, sourceItem);
+      if (assets.length !== 1 || !sourceItem.text_content || [...String(sourceItem.text_content)].length > 500) {
+        throw new Error("A Threads post must contain exactly one image and one caption of no more than 500 characters");
+      }
+      const images = [{ ...assets[0], bytes: await this.env.EDITORIAL_DATA.get("social-image:" + assets[0].id, "arrayBuffer") }];
+      await telegramSendVisualPreview(this.env, this.env.TELEGRAM_CHAT_ID, images, String(sourceItem.text_content).trim());
       await this.ctx.storage.transaction(async txn => {
         const item = await txn.get(itemKey);
         if (!item || item.status !== "generating_visual") return;
