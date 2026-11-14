@@ -13,6 +13,7 @@ const STAGE_NAMES = {
 };
 
 const OUTBOX_RETRY_MS = 30_000;
+const TELEGRAM_SAFE_LIMIT = 3500;
 
 // ======================================================
 // COMMON HELPERS
@@ -28,6 +29,39 @@ function isAuthorizedChat(chat, env) {
     Boolean(env.TELEGRAM_CHAT_ID) &&
     String(chat.id) === String(env.TELEGRAM_CHAT_ID)
   );
+}
+
+// Разделение длинного текста на части.
+
+function splitTelegramText(text, limit = TELEGRAM_SAFE_LIMIT) {
+  const chars = Array.from(String(text ?? ""));
+  const chunks = [];
+
+  while (chars.length > 0) {
+    if (chars.length <= limit) {
+      chunks.push(chars.join(""));
+      break;
+    }
+
+    let cut = limit;
+
+    const paragraphBreak = chars.lastIndexOf("\n", limit - 1);
+
+    if (paragraphBreak > limit * 0.6) {
+      cut = paragraphBreak + 1;
+    } else {
+      const wordBreak = chars.lastIndexOf(" ", limit - 1);
+
+      if (wordBreak > limit * 0.6) {
+        cut = wordBreak + 1;
+      }
+    }
+
+    chunks.push(chars.slice(0, cut).join(""));
+    chars.splice(0, cut);
+  }
+
+  return chunks;
 }
 
 // ======================================================
@@ -61,14 +95,16 @@ async function telegram(env, method, data) {
   }
 
   if (!response.ok || !result.ok) {
+    const description = result.description || "Unknown error";
+
     console.error("Telegram API error:", {
       method,
       status: response.status,
-      description: result.description || "Unknown error"
+      description
     });
 
     throw new Error(
-      `Telegram API error: ${method}, status ${response.status}`
+      `Telegram API error: ${method}, status ${response.status}: ${description}`
     );
   }
 
@@ -428,10 +464,14 @@ export default {
               "Ты OSINT-аналитик. Напиши краткий тестовый материал на русском языке: три способа проверить цифровой след компании из открытых источников. Не выдумывай факты. Используй нумерованный список."
             );
 
-            await telegram(env, "sendMessage", {
-              chat_id: chatId,
-              text: answer
-            });
+            const chunks = splitTelegramText(answer);
+
+            for (const chunk of chunks) {
+              await telegram(env, "sendMessage", {
+                chat_id: chatId,
+                text: chunk
+              });
+            }
 
             console.log("GEMINI TEST COMPLETED");
 
@@ -579,14 +619,49 @@ export class ApprovalCoordinator {
   // OUTBOX
   // ==================================================
 
-  async enqueue(txn, method, data) {
-    const id = crypto.randomUUID();
+  async enqueue(txn, method, data, options = {}) {
+    let payloads = [data];
 
-    await txn.put(`outbox:${id}`, {
-      method,
-      data,
-      created_at: new Date().toISOString()
-    });
+    if (
+      method === "sendMessage" &&
+      typeof data?.text === "string"
+    ) {
+      const chunks = splitTelegramText(data.text);
+
+      payloads = chunks.map((chunk, index) => {
+        const payload = {
+          ...data,
+          text: chunk
+        };
+
+        if (index !== chunks.length - 1) {
+          delete payload.reply_markup;
+        }
+
+        return payload;
+      });
+    }
+
+    const createdAt =
+      options.created_at || new Date().toISOString();
+
+    for (const payload of payloads) {
+      const sequenceKey = "outbox_sequence";
+      const previousSequence = await txn.get(sequenceKey);
+
+      const sequence = Number(previousSequence || 0) + 1;
+
+      await txn.put(sequenceKey, sequence);
+
+      const id = String(sequence).padStart(16, "0");
+
+      await txn.put(`outbox:${id}`, {
+        method,
+        data: payload,
+        sequence,
+        created_at: createdAt
+      });
+    }
   }
 
   // ==================================================
@@ -1081,9 +1156,6 @@ export class ApprovalCoordinator {
     if (result.status === "generating_text") {
       const itemKey = `item:${result.item_id}`;
 
-      // Сначала отправляем подтверждение нажатия
-      // и другие уже сохранённые сообщения Outbox.
-
       await this.flushOutbox();
 
       try {
@@ -1205,7 +1277,32 @@ export class ApprovalCoordinator {
       prefix: "outbox:"
     });
 
-    for (const [key, message] of messages) {
+    const orderedMessages = [...messages.entries()].sort(
+      (a, b) => {
+        const timeA = String(a[1].created_at || "");
+        const timeB = String(b[1].created_at || "");
+
+        if (timeA !== timeB) {
+          return timeA.localeCompare(timeB);
+        }
+
+        const seqA = Number(
+          a[1].sequence ?? Number.MAX_SAFE_INTEGER
+        );
+
+        const seqB = Number(
+          b[1].sequence ?? Number.MAX_SAFE_INTEGER
+        );
+
+        if (seqA !== seqB) {
+          return seqA - seqB;
+        }
+
+        return String(a[0]).localeCompare(String(b[0]));
+      }
+    );
+
+    for (const [key, message] of orderedMessages) {
       try {
         await telegram(
           this.env,
@@ -1216,10 +1313,65 @@ export class ApprovalCoordinator {
         await this.ctx.storage.delete(key);
 
       } catch (error) {
-        console.error(
-          "Outbox delivery failed:",
-          error.message
-        );
+        const errorMessage = String(error.message || error);
+
+        console.error("Outbox delivery failed:", {
+          key,
+          method: message.method,
+          error: errorMessage
+        });
+
+        // Исправление старых сообщений,
+        // которые превышают лимит Telegram.
+
+        if (errorMessage.includes("message is too long")) {
+          await this.ctx.storage.transaction(async (txn) => {
+            await txn.delete(key);
+
+            await this.enqueue(
+              txn,
+              message.method,
+              message.data,
+              {
+                created_at: message.created_at
+              }
+            );
+          });
+
+          console.log(
+            "Oversized message split into smaller messages"
+          );
+
+          await this.ctx.storage.setAlarm(
+            Date.now() + 1000
+          );
+
+          return;
+        }
+
+        // Постоянные ошибки Telegram не должны
+        // бесконечно блокировать очередь.
+
+        if (errorMessage.includes("status 400")) {
+          await this.ctx.storage.put(
+            `failed:${key.slice("outbox:".length)}`,
+            {
+              ...message,
+              error: errorMessage,
+              failed_at: new Date().toISOString()
+            }
+          );
+
+          await this.ctx.storage.delete(key);
+
+          console.error(
+            "Permanent Telegram error moved to failed storage"
+          );
+
+          continue;
+        }
+
+        // Временные ошибки — повторная отправка.
 
         await this.ctx.storage.setAlarm(
           Date.now() + OUTBOX_RETRY_MS
@@ -1227,6 +1379,16 @@ export class ApprovalCoordinator {
 
         return;
       }
+    }
+
+    const remaining = await this.ctx.storage.list({
+      prefix: "outbox:"
+    });
+
+    if (remaining.size > 0) {
+      await this.ctx.storage.setAlarm(
+        Date.now() + OUTBOX_RETRY_MS
+      );
     }
   }
 
