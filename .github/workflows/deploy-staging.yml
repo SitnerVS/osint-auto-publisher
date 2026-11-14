@@ -7,6 +7,7 @@ on:
       - main
     paths:
       - "worker/src/index.js"
+      - "config/settings.json"
       - "wrangler.jsonc"
       - ".github/workflows/deploy-staging.yml"
 
@@ -22,6 +23,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Validate settings JSON
+        run: |
+          python -m json.tool config/settings.json > /dev/null
+          echo "Settings JSON is valid"
 
       - name: Deploy to Cloudflare Staging
         uses: cloudflare/wrangler-action@v4
