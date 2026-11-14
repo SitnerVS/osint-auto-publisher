@@ -2289,6 +2289,12 @@ export class ApprovalCoordinator {
           throw new Error("Threads container is already PUBLISHED; automatic retry is blocked to prevent a duplicate");
         }
         if (["ERROR", "EXPIRED"].includes(containerStatus)) {
+          await this.ctx.storage.put(itemKey, {
+            ...item,
+            threads_publication_status: "failed",
+            threads_container_id: containerId,
+            threads_publication_error: "Threads container status " + containerStatus + (containerError ? ": " + containerError : "")
+          });
           throw new Error("Threads container status " + containerStatus + (containerError ? ": " + containerError : ""));
         }
         if (attempt < 14) await new Promise(resolve => setTimeout(resolve, 2000));
@@ -2374,6 +2380,8 @@ export class ApprovalCoordinator {
           threads_publication_error: String(error.message || error).slice(0, 500),
           threads_publication_failed_at: new Date().toISOString()
         });
+      } else if (latestItem?.threads_publication_status === "created") {
+        // Keep the known container so /publish_retry can resume it without creating another.
       } else if (!["create_unknown", "publish_unknown"].includes(latestItem?.threads_publication_status)) {
         await this.ctx.storage.put(itemKey, {
           ...latestItem,
