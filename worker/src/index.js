@@ -327,11 +327,11 @@ async function generateAndStoreVisualAssets(env, itemId, plan) {
       "ТЕМАТИЧЕСКАЯ ВЕКТОРНАЯ СЦЕНА: " + String(slide.prompt).trim(),
       "ФОРМАТ: строго вертикальный 4:5, 1024x1280 пикселей.",
       "СТИЛЬ: premium investigative editorial vector illustration, строгая плоская векторная графика, точные геометрические формы, чистые контуры, без фотореализма и без 3D. Цвета строго: фон #0B0D0F/#15181B, светлые формы #E7E9EA, вторичные #858B91, основной акцент #FF5A36, #A7D65C только для точечного маркера проверки.",
-      "КОМПОЗИЦИЯ: одна однозначная визуальная метафора именно темы статьи; только объекты, необходимые для её понимания. Элементы не должны сливаться, деформироваться или иметь невозможную геометрию. Не добавляй посторонние предметы. Не делай коллаж, набор иконок или универсальную абстракцию. Без интерфейсных панелей и дашбордов.",",
+      "КОМПОЗИЦИЯ: одна однозначная визуальная метафора именно темы статьи; только объекты, необходимые для её понимания. Элементы не должны сливаться, деформироваться или иметь невозможную геометрию. Не добавляй посторонние предметы. Не делай коллаж, набор иконок или универсальную абстракцию. Без интерфейсных панелей и дашбордов.",
       "АБСОЛЮТНО НИКАКОГО ТЕКСТА: не создавать ни букв, ни цифр, ни слов, ни заголовков, ни подзаголовков, ни подписей, ни псевдотекста, ни случайных символов, ни маркировок. Никаких надписей на документах, бумагах, экранах, телефонах, компьютерах, вывесках, зданиях, одежде и предметах. Не имитировать текст нечитаемыми линиями или символами. Изображение должно быть полностью без текста.",
       "Никаких логотипов, брендов, названий компаний, OSINTNER, водяных знаков, социальных никнеймов, брендовых подписей или символов.",
       "ИСКЛЮЧИТЬ: photography, photorealism, 3D, CGI, cyberpunk, hacker in hoodie, matrix green rain, neon RGB, futuristic holograms, sci-fi interface, technical dashboards, complex HUD, warm brown palette, golden lighting, anime, cartoon, generic stock imagery, visual clutter.",
-      "Белая жирная русская типографика, оранжевые выделения #F26A1B и тонкая оранжевая линия относятся только к последующему отдельному этапу вёрстки и НЕ должны присутствовать в генерируемой фотографии."
+      "Никакой типографики и никакого текста внутри изображения; пост публикуется с отдельным тематическим текстовым описанием в подписи того же Threads-поста."
     ].join("\n");
     const bytes = await generateCloudflareImage(env, prompt);
     const id = crypto.randomUUID().replace(/-/g, "");
@@ -771,13 +771,13 @@ export default {
             chat_id: chatId,
             text:
               "OSINT EDITORIAL SETTINGS\n\n" +
-              `Account: ${SETTINGS.account}\n` +
-              `Timezone: ${SETTINGS.timezone}\n` +
-              `Feed posts per day: ${SETTINGS.publishing.feed_posts_per_day}\n` +
-              `Feed schedule: ${SETTINGS.publishing.feed_schedule.join(", ")}\n` +
-              `Reels per day: ${SETTINGS.publishing.reels_per_day}\n` +
+              `Platform: Threads only\n` +
+              `Timezone: ${SETTINGS.publishing.schedule_timezone}\n` +
+              `Editorial posts per day: ${SETTINGS.publishing.feed_posts_per_day}\n` +
+              `Target schedule: ${SETTINGS.publishing.feed_schedule.join(", ")}\n` +
+              `Format: one image + one caption, no carousels\n` +
               `Topic rotation: ${SETTINGS.content_strategy.topic_rotation.join(" → ")}\n` +
-              `Hashtags: ${SETTINGS.content_strategy.hashtags ? "enabled" : "disabled"}`
+              `Hashtags: disabled`
           });
         }
 
