@@ -1159,7 +1159,7 @@ export class ApprovalCoordinator {
         }
 
         current.title = title;
-        current.content = `КАТЕГОРИЯ: ${current.category}\\n\\nТЕМА: ${title}`;
+        current.content = `КАТЕГОРИЯ: ${current.category}\n\nТЕМА: ${title}`;
         current.stage = "topic";
         current.status = "pending";
         current.approval_id = crypto.randomUUID();
