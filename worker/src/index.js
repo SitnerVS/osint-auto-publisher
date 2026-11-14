@@ -714,6 +714,7 @@ export default {
               "Система согласований готова.\n\n" +
               "Доступные команды:\n" +
               "/test — тест согласования\n" +
+              "/visual_test — безопасный тест генерации визуала\n" +
               "/generate — генерация новой темы\n" +
               "/ai_test — проверка Gemini\n" +
               "/image_test — тест генерации изображения\n" +
@@ -754,6 +755,18 @@ export default {
           console.log("Approval test started");
 
           await callCoordinator(env, "/test", {
+            user_id: userId,
+            chat_id: chatId
+          });
+        }
+
+        else if (command === "/visual_test") {
+          console.log("VISUAL GENERATION TEST REQUESTED");
+          await telegram(env, "sendMessage", {
+            chat_id: chatId,
+            text: "Запускаю безопасный тест генерации визуала. Тестовый материал не может быть опубликован в Threads."
+          });
+          await callCoordinator(env, "/visual-test", {
             user_id: userId,
             chat_id: chatId
           });
@@ -860,6 +873,7 @@ export default {
               "Доступные команды:\n" +
               "/start\n" +
               "/test\n" +
+              "/visual_test\n" +
               "/generate\n" +
               "/settings\n" +
               "/ai_test\n" +
@@ -940,6 +954,7 @@ export class ApprovalCoordinator {
     if (
       path !== "/callback" &&
       path !== "/test" &&
+      path !== "/visual-test" &&
       path !== "/generate" &&
       path !== "/threads/oauth/save-state" &&
       path !== "/threads/oauth/consume-state" &&
@@ -967,6 +982,8 @@ export class ApprovalCoordinator {
 
       if (path === "/test") {
         result = await this.handleTest(payload);
+      } else if (path === "/visual-test") {
+        result = await this.handleVisualTest(payload);
       } else if (path === "/generate") {
         result = await this.handleGenerate(payload);
       } else if (path === "/threads/oauth/save-state") {
@@ -1396,6 +1413,41 @@ export class ApprovalCoordinator {
       status: "pending",
       item_id: item.id
     };
+  }
+
+  async handleVisualTest(payload) {
+    const expectedId = String(this.env.TELEGRAM_CHAT_ID ?? "");
+    if (!expectedId || String(payload.chat_id ?? "") !== expectedId || String(payload.user_id ?? "") !== expectedId) {
+      return { ok: false, error: "Unauthorized" };
+    }
+
+    const timestamp = new Date().toISOString();
+    const item = {
+      id: "visual-test-" + crypto.randomUUID().slice(0, 8),
+      title: "Тест генерации визуала",
+      category: "OSINT",
+      content: "ТЕСТОВАЯ ТЕМА: Как проверить цифровой след компании с помощью OSINT",
+      text_content: "Учебный материал для проверки визуального конвейера. Проверка цифрового следа компании включает анализ домена, публичных регистрационных сведений, связанных ресурсов и открытых корпоративных источников. Отдельные совпадения являются только индикаторами и требуют независимой проверки.",
+      is_test: true,
+      stage: "visual",
+      status: "generating_visual",
+      history: [],
+      created_at: timestamp,
+      updated_at: timestamp
+    };
+
+    await this.ctx.storage.transaction(async txn => {
+      await txn.put("item:" + item.id, item);
+      await this.addEvent(txn, {
+        item_id: item.id,
+        stage: "visual",
+        action: "visual_test_created",
+        user_id: String(payload.user_id ?? "")
+      });
+    });
+
+    await this.runVisualGeneration(item.id);
+    return { ok: true, status: "visual_test_started", item_id: item.id };
   }
 
   // ==================================================
