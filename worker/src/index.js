@@ -706,6 +706,7 @@ export default {
               "/visual_test — безопасный тест генерации визуала\n" +
               "/generate — генерация новой темы\n" +
               "/publish_retry ID — безопасно повторить попытку Threads\n" +
+              "/threads_status — проверить подключение Threads\n" +
               "/ai_test — проверка Gemini\n" +
               "/image_test — тест генерации изображения\n" +
               "/settings — просмотр настроек\n" +
@@ -771,8 +772,8 @@ export default {
           await telegram(env, "sendMessage", {
             chat_id: chatId,
             text: status.connected
-              ? "THREADS STATUS\\nПодключённый аккаунт: @" + String(status.username || "имя не получено") + "\\nТокен: " + (status.expired ? "истёк" : "действителен") + (expiry ? "\\nСрок действия до: " + expiry : "")
-              : "THREADS STATUS\\nАккаунт Threads пока не авторизован. Для публикаций требуется подключение через /threads/connect."
+              ? "THREADS STATUS\nПодключённый аккаунт: @" + String(status.username || "имя не получено") + "\nТокен: " + (status.expired ? "истёк" : "действителен") + (expiry ? "\nСрок действия до: " + expiry : "")
+              : "THREADS STATUS\nАккаунт Threads пока не авторизован. Для публикаций требуется подключение через /threads/connect."
           });
         }
 
@@ -890,6 +891,7 @@ export default {
               "/visual_test\n" +
               "/generate\n" +
               "/publish_retry ID\n" +
+              "/threads_status\n" +
               "/settings\n" +
               "/ai_test\n" +
               "/image_test\n" +
