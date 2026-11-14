@@ -2209,13 +2209,13 @@ export class ApprovalCoordinator {
     }
 
     const fullText = String(item.text_content || "").trim();
-    if (!fullText || new TextEncoder().encode(fullText).length > 500) {
-      await this.ctx.storage.put(itemKey, { ...item, threads_publication_status: "failed", threads_publication_error: "Threads caption must contain 1–500 UTF-8 bytes" });
+    if (!fullText || [...fullText].length > 500) {
+      await this.ctx.storage.put(itemKey, { ...item, threads_publication_status: "failed", threads_publication_error: "Threads caption must contain 1–500 characters" });
       await telegram(this.env, "sendMessage", {
         chat_id: this.env.TELEGRAM_CHAT_ID,
-        text: "Публикация остановлена: подпись должна содержать не более 500 байт в UTF-8. Материал: " + itemId
+        text: "Публикация остановлена: подпись должна содержать не более 500 символов. Материал: " + itemId
       });
-      return { ok: false, error: "Threads caption exceeds 500-byte limit" };
+      return { ok: false, error: "Threads caption exceeds 500-character limit" };
     }
 
     const image = Array.isArray(item.visual_assets) ? item.visual_assets[0] : null;
