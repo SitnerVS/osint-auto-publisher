@@ -1,7 +1,10 @@
 
-const STAGES = ["topic", "text", "visual", "final"];
 import settings from "../../config/settings.json" with { type: "json" };
+
 const SETTINGS = settings;
+
+const STAGES = ["topic", "text", "visual", "final"];
+
 const STAGE_NAMES = {
   topic: "ТЕМА",
   text: "ТЕКСТ",
@@ -103,7 +106,7 @@ async function geminiGenerate(env, prompt) {
         ],
         generationConfig: {
           temperature: 0.7,
-          maxOutputTokens: 1500
+          maxOutputTokens: 2500
         }
       })
     }
@@ -239,6 +242,7 @@ async function callCoordinator(env, path, payload) {
 
 export default {
   async fetch(request, env) {
+
     // HEALTH CHECK
 
     if (request.method === "GET") {
@@ -326,16 +330,8 @@ export default {
           geminiKeyConfigured: Boolean(env.GEMINI_API_KEY)
         });
 
-        // ACCESS DENIED
-
         if (!allowed) {
-          console.error(
-            "MESSAGE REJECTED: unauthorized chat",
-            {
-              chatType: message.chat?.type,
-              chatIdPresent: Boolean(chatId)
-            }
-          );
+          console.error("MESSAGE REJECTED: unauthorized chat");
 
           return new Response("OK");
         }
@@ -371,6 +367,7 @@ export default {
               `Coordinator: ${env.APPROVAL_COORDINATOR ? "configured" : "missing"}`
           });
         }
+
         // /SETTINGS
 
         else if (command === "/settings") {
@@ -387,6 +384,7 @@ export default {
               `Hashtags: ${SETTINGS.content_strategy.hashtags ? "enabled" : "disabled"}`
           });
         }
+
         // /TEST
 
         else if (command === "/test") {
@@ -397,6 +395,7 @@ export default {
             chat_id: chatId
           });
         }
+
         // /GENERATE
 
         else if (command === "/generate") {
@@ -412,6 +411,7 @@ export default {
             chat_id: chatId
           });
         }
+
         // /AI_TEST
 
         else if (command === "/ai_test") {
@@ -464,7 +464,6 @@ export default {
               "/settings\n" +
               "/ai_test\n" +
               "/id"
-             
           });
         }
       }
@@ -516,7 +515,7 @@ export class ApprovalCoordinator {
 
     const path = new URL(request.url).pathname;
 
-        if (
+    if (
       path !== "/callback" &&
       path !== "/test" &&
       path !== "/generate"
@@ -538,12 +537,14 @@ export class ApprovalCoordinator {
     }
 
     try {
-            let result;
+      let result;
 
       if (path === "/test") {
         result = await this.handleTest(payload);
+
       } else if (path === "/generate") {
         result = await this.handleGenerate(payload);
+
       } else {
         result = await this.handleCallback(payload);
       }
@@ -563,7 +564,8 @@ export class ApprovalCoordinator {
     } catch (error) {
       console.error(
         "Coordinator error:",
-        error.message
+        error.message,
+        error.stack || ""
       );
 
       return json({
@@ -683,36 +685,31 @@ export class ApprovalCoordinator {
       approval_id: crypto.randomUUID()
     };
 
-    await this.ctx.storage.transaction(
-      async (txn) => {
-        await txn.put(
-          `item:${item.id}`,
-          item
-        );
+    await this.ctx.storage.transaction(async (txn) => {
+      await txn.put(
+        `item:${item.id}`,
+        item
+      );
 
-        await txn.put(
-          rotationKey,
-          (index + 1) % topics.length
-        );
+      await txn.put(
+        rotationKey,
+        (index + 1) % topics.length
+      );
 
-        await this.addEvent(txn, {
-          item_id: item.id,
-          stage: "topic",
-          action: "ai_topic_generated",
-          category,
-          user_id: userId
-        });
+      await this.addEvent(txn, {
+        item_id: item.id,
+        stage: "topic",
+        action: "ai_topic_generated",
+        category,
+        user_id: userId
+      });
 
-        await this.enqueue(
-          txn,
-          "sendMessage",
-          approvalMessage(
-            item,
-            expectedChatId
-          )
-        );
-      }
-    );
+      await this.enqueue(
+        txn,
+        "sendMessage",
+        approvalMessage(item, expectedChatId)
+      );
+    });
 
     return {
       ok: true,
@@ -750,6 +747,9 @@ export class ApprovalCoordinator {
       id: `test-${crypto.randomUUID().slice(0, 8)}`,
       content:
         "ТЕСТОВАЯ ТЕМА: Как проверить цифровой след компании с помощью OSINT",
+      title: "Тест согласования",
+      category: "OSINT",
+      is_test: true,
       stage: "topic",
       status: "pending",
       history: [],
@@ -758,36 +758,78 @@ export class ApprovalCoordinator {
       approval_id: crypto.randomUUID()
     };
 
-    await this.ctx.storage.transaction(
-      async (txn) => {
-        await txn.put(
-          `item:${item.id}`,
-          item
-        );
+    await this.ctx.storage.transaction(async (txn) => {
+      await txn.put(
+        `item:${item.id}`,
+        item
+      );
 
-        await this.addEvent(txn, {
-          item_id: item.id,
-          stage: "topic",
-          action: "test_created",
-          user_id: String(payload.user_id ?? "")
-        });
+      await this.addEvent(txn, {
+        item_id: item.id,
+        stage: "topic",
+        action: "test_created",
+        user_id: String(payload.user_id ?? "")
+      });
 
-        await this.enqueue(
-          txn,
-          "sendMessage",
-          approvalMessage(
-            item,
-            this.env.TELEGRAM_CHAT_ID
-          )
-        );
-      }
-    );
+      await this.enqueue(
+        txn,
+        "sendMessage",
+        approvalMessage(item, this.env.TELEGRAM_CHAT_ID)
+      );
+    });
 
     return {
       ok: true,
       status: "pending",
       item_id: item.id
     };
+  }
+
+  // ==================================================
+  // AI TEXT GENERATOR
+  // ==================================================
+
+  async generateDraftText(item) {
+    const prompt =
+      `Ты главный редактор премиального расследовательского медиа OSINT Editorial.\n\n` +
+      `Подготовь полноценный черновик публикации на русском языке.\n\n` +
+      `КАТЕГОРИЯ: ${item.category}\n` +
+      `ТЕМА: ${item.title}\n\n` +
+      `ТРЕБОВАНИЯ К МАТЕРИАЛУ:\n` +
+      `1. Начни с сильного, но профессионального заголовка.\n` +
+      `2. Объясни проблему и её практическое значение.\n` +
+      `3. Раскрой тему последовательно, с конкретными примерами применения.\n` +
+      `4. Используй профессиональную терминологию, объясняя сложные понятия.\n` +
+      `5. Не выдумывай реальные события, компании, статистику и результаты расследований.\n` +
+      `6. Не выдавай предположения за установленные факты.\n` +
+      `7. Не раскрывай персональные данные частных лиц.\n` +
+      `8. Не добавляй хештеги.\n\n` +
+      `ОСОБЫЕ ТРЕБОВАНИЯ:\n` +
+      `- Для OSINT описывай законные методы работы с открытыми источниками.\n` +
+      `- Для Комплаенса раскрывай практические механизмы контроля и проверки.\n` +
+      `- Для Антифрода объясняй механизмы мошенничества и противодействия.\n` +
+      `- Если тема касается санкций, различай подтверждённые сведения, совпадения и аналитические гипотезы.\n` +
+      `- Не предлагай незаконный доступ к закрытым системам или данным.\n\n` +
+      `СТРУКТУРА ОТВЕТА:\n` +
+      `ЗАГОЛОВОК\n` +
+      `ВВЕДЕНИЕ\n` +
+      `ОСНОВНАЯ ЧАСТЬ\n` +
+      `ПРАКТИЧЕСКИЙ ПРИМЕР\n` +
+      `ВЫВОД\n` +
+      `ИСТОЧНИКИ ДЛЯ ПРОВЕРКИ\n\n` +
+      `В последнем разделе укажи названия подходящих первичных источников и официальных ресурсов. Не придумывай URL и не утверждай, что источники уже проверены.\n\n` +
+      `Подготовь содержательный материал объёмом примерно 2500–3500 знаков. Верни только текст публикации.`;
+
+    const result = await geminiGenerate(
+      this.env,
+      prompt
+    );
+
+    if (!result || result.trim().length < 300) {
+      throw new Error("Generated publication text is too short");
+    }
+
+    return result.trim();
   }
 
   // ==================================================
@@ -819,14 +861,10 @@ export class ApprovalCoordinator {
       userId === chatId;
 
     if (!authorized) {
-      await telegram(
-        this.env,
-        "answerCallbackQuery",
-        {
-          callback_query_id: q.id,
-          text: "Нет доступа"
-        }
-      );
+      await telegram(this.env, "answerCallbackQuery", {
+        callback_query_id: q.id,
+        text: "Нет доступа"
+      });
 
       return {
         ok: true,
@@ -834,25 +872,18 @@ export class ApprovalCoordinator {
       };
     }
 
-    const [
-      action,
-      itemId,
-      approvalId
-    ] = String(q.data ?? "").split(":");
+    const [action, itemId, approvalId] =
+      String(q.data ?? "").split(":");
 
     if (
       !["approve", "reject", "revise"].includes(action) ||
       !itemId ||
       !approvalId
     ) {
-      await telegram(
-        this.env,
-        "answerCallbackQuery",
-        {
-          callback_query_id: q.id,
-          text: "Некорректная кнопка"
-        }
-      );
+      await telegram(this.env, "answerCallbackQuery", {
+        callback_query_id: q.id,
+        text: "Некорректная кнопка"
+      });
 
       return {
         ok: true,
@@ -860,170 +891,162 @@ export class ApprovalCoordinator {
       };
     }
 
-    const result = await this.ctx.storage.transaction(
-      async (txn) => {
-        const callbackKey = `callback:${q.id}`;
+    const result = await this.ctx.storage.transaction(async (txn) => {
+      const callbackKey = `callback:${q.id}`;
+      const processed = await txn.get(callbackKey);
 
-        const processed = await txn.get(callbackKey);
+      if (processed) {
+        return {
+          duplicate: true
+        };
+      }
 
-        if (processed) {
-          return {
-            duplicate: true
-          };
-        }
+      const itemKey = `item:${itemId}`;
+      const item = await txn.get(itemKey);
 
-        const itemKey = `item:${itemId}`;
-        const item = await txn.get(itemKey);
+      const timestamp = new Date().toISOString();
 
-        const timestamp = new Date().toISOString();
-
-        if (!item) {
-          await txn.put(callbackKey, {
-            processed_at: timestamp
-          });
-
-          return {
-            status: "not_found"
-          };
-        }
-
-        if (
-          item.status !== "pending" ||
-          item.approval_id !== approvalId ||
-          !STAGES.includes(item.stage)
-        ) {
-          await txn.put(callbackKey, {
-            processed_at: timestamp
-          });
-
-          return {
-            status: "stale"
-          };
-        }
-
-        const currentStage = item.stage;
-
-        item.history = Array.isArray(item.history)
-          ? item.history
-          : [];
-
-        item.history.push({
-          stage: currentStage,
-          action,
-          user_id: userId,
-          approval_id: approvalId,
-          timestamp
-        });
-
-        item.updated_at = timestamp;
-
-        let nextItem = null;
-
-        if (action === "approve") {
-          const index = STAGES.indexOf(
-            currentStage
-          );
-
-          if (index === STAGES.length - 1) {
-            item.status = "publication_approved";
-            item.publication_approved_at = timestamp;
-
-            delete item.approval_id;
-
-          } else {
-            item.stage = STAGES[index + 1];
-            item.status = "pending";
-            item.approval_id = crypto.randomUUID();
-
-            nextItem = { ...item };
-          }
-
-        } else {
-          item.status =
-            action === "reject"
-              ? "rejected"
-              : "revision_requested";
-
-          item.decision_at = timestamp;
-
-          delete item.approval_id;
-        }
-
-        await txn.put(itemKey, item);
-
+      if (!item) {
         await txn.put(callbackKey, {
           processed_at: timestamp
         });
 
-        await this.addEvent(txn, {
-          item_id: item.id,
-          stage: currentStage,
-          action,
-          user_id: userId,
-          callback_id: q.id
+        return {
+          status: "not_found"
+        };
+      }
+
+      if (
+        item.status !== "pending" ||
+        item.approval_id !== approvalId ||
+        !STAGES.includes(item.stage)
+      ) {
+        await txn.put(callbackKey, {
+          processed_at: timestamp
         });
 
-        const acknowledgement =
-          action === "approve"
-            ? (
-                item.status === "publication_approved"
-                  ? "ФИНАЛЬНОЕ РАЗРЕШЕНИЕ ПОЛУЧЕНО. Публикация одобрена."
+        return {
+          status: "stale"
+        };
+      }
+
+      const currentStage = item.stage;
+
+      item.history = Array.isArray(item.history)
+        ? item.history
+        : [];
+
+      item.history.push({
+        stage: currentStage,
+        action,
+        user_id: userId,
+        approval_id: approvalId,
+        timestamp
+      });
+
+      item.updated_at = timestamp;
+
+      let nextItem = null;
+
+      if (action === "approve") {
+        const index = STAGES.indexOf(currentStage);
+
+        if (index === STAGES.length - 1) {
+          item.status = "publication_approved";
+          item.publication_approved_at = timestamp;
+
+          delete item.approval_id;
+
+        } else if (
+          currentStage === "topic" &&
+          !item.is_test
+        ) {
+          item.status = "generating_text";
+
+          delete item.approval_id;
+
+        } else {
+          item.stage = STAGES[index + 1];
+          item.status = "pending";
+          item.approval_id = crypto.randomUUID();
+
+          nextItem = { ...item };
+        }
+
+      } else {
+        item.status =
+          action === "reject"
+            ? "rejected"
+            : "revision_requested";
+
+        item.decision_at = timestamp;
+
+        delete item.approval_id;
+      }
+
+      await txn.put(itemKey, item);
+
+      await txn.put(callbackKey, {
+        processed_at: timestamp
+      });
+
+      await this.addEvent(txn, {
+        item_id: item.id,
+        stage: currentStage,
+        action,
+        user_id: userId,
+        callback_id: q.id
+      });
+
+      const acknowledgement =
+        action === "approve"
+          ? (
+              item.status === "publication_approved"
+                ? "ФИНАЛЬНОЕ РАЗРЕШЕНИЕ ПОЛУЧЕНО. Публикация одобрена."
+                : currentStage === "topic" && !item.is_test
+                  ? "Тема одобрена. Начинаю подготовку текста..."
                   : `Этап «${STAGE_NAMES[currentStage]}» одобрен.`
-              )
-            : (
-                action === "reject"
-                  ? "Материал отклонён. Дальнейшие этапы заблокированы."
-                  : "Материал отправлен на доработку. Дальнейшие этапы заблокированы."
-              );
+            )
+          : (
+              action === "reject"
+                ? "Материал отклонён. Дальнейшие этапы заблокированы."
+                : "Материал отправлен на доработку. Дальнейшие этапы заблокированы."
+            );
 
-        await this.enqueue(
-          txn,
-          "answerCallbackQuery",
-          {
-            callback_query_id: q.id,
-            text: "Решение сохранено"
-          }
-        );
+      await this.enqueue(txn, "answerCallbackQuery", {
+        callback_query_id: q.id,
+        text: "Решение сохранено"
+      });
 
+      await this.enqueue(txn, "sendMessage", {
+        chat_id: this.env.TELEGRAM_CHAT_ID,
+        text: acknowledgement
+      });
+
+      if (nextItem) {
         await this.enqueue(
           txn,
           "sendMessage",
-          {
-            chat_id: this.env.TELEGRAM_CHAT_ID,
-            text: acknowledgement
-          }
+          approvalMessage(nextItem, this.env.TELEGRAM_CHAT_ID)
         );
-
-        if (nextItem) {
-          await this.enqueue(
-            txn,
-            "sendMessage",
-            approvalMessage(
-              nextItem,
-              this.env.TELEGRAM_CHAT_ID
-            )
-          );
-        }
-
-        return {
-          status: item.status,
-          stage: item.stage,
-          item_id: item.id,
-          current_stage: currentStage,
-          action
-        };
       }
-    );
+
+      return {
+        status: item.status,
+        stage: item.stage,
+        item_id: item.id,
+        current_stage: currentStage,
+        action
+      };
+    });
+
+    // DUPLICATE CALLBACK
 
     if (result.duplicate) {
-      await telegram(
-        this.env,
-        "answerCallbackQuery",
-        {
-          callback_query_id: q.id,
-          text: "Это решение уже обработано"
-        }
-      );
+      await telegram(this.env, "answerCallbackQuery", {
+        callback_query_id: q.id,
+        text: "Это решение уже обработано"
+      });
 
       return {
         ok: true,
@@ -1031,26 +1054,138 @@ export class ApprovalCoordinator {
       };
     }
 
+    // INVALID OR STALE MATERIAL
+
     if (
       result.status === "stale" ||
       result.status === "not_found"
     ) {
-      await telegram(
-        this.env,
-        "answerCallbackQuery",
-        {
-          callback_query_id: q.id,
-          text:
-            result.status === "stale"
-              ? "Кнопка устарела или решение уже принято"
-              : "Материал не найден"
-        }
-      );
+      await telegram(this.env, "answerCallbackQuery", {
+        callback_query_id: q.id,
+        text:
+          result.status === "stale"
+            ? "Кнопка устарела или решение уже принято"
+            : "Материал не найден"
+      });
 
       return {
         ok: true,
         status: result.status
       };
+    }
+
+    // ==================================================
+    // GENERATE TEXT AFTER TOPIC APPROVAL
+    // ==================================================
+
+    if (result.status === "generating_text") {
+      const itemKey = `item:${result.item_id}`;
+
+      // Сначала отправляем подтверждение нажатия
+      // и другие уже сохранённые сообщения Outbox.
+
+      await this.flushOutbox();
+
+      try {
+        const sourceItem = await this.ctx.storage.get(itemKey);
+
+        if (!sourceItem) {
+          throw new Error("Material not found");
+        }
+
+        console.log(
+          "AI TEXT GENERATION STARTED:",
+          result.item_id
+        );
+
+        const generatedText =
+          await this.generateDraftText(sourceItem);
+
+        await this.ctx.storage.transaction(async (txn) => {
+          const item = await txn.get(itemKey);
+
+          if (
+            !item ||
+            item.status !== "generating_text"
+          ) {
+            return;
+          }
+
+          const timestamp = new Date().toISOString();
+
+          item.content = generatedText;
+          item.stage = "text";
+          item.status = "pending";
+          item.approval_id = crypto.randomUUID();
+          item.updated_at = timestamp;
+          item.text_generated_at = timestamp;
+
+          await txn.put(itemKey, item);
+
+          await this.addEvent(txn, {
+            item_id: item.id,
+            stage: "text",
+            action: "ai_text_generated",
+            category: item.category
+          });
+
+          await this.enqueue(
+            txn,
+            "sendMessage",
+            approvalMessage(
+              item,
+              this.env.TELEGRAM_CHAT_ID
+            )
+          );
+        });
+
+        console.log(
+          "AI TEXT GENERATION COMPLETED:",
+          result.item_id
+        );
+
+      } catch (error) {
+        console.error(
+          "AI TEXT GENERATION FAILED:",
+          error.message
+        );
+
+        await this.ctx.storage.transaction(async (txn) => {
+          const item = await txn.get(itemKey);
+
+          if (
+            !item ||
+            item.status !== "generating_text"
+          ) {
+            return;
+          }
+
+          item.status = "generation_failed";
+          item.updated_at = new Date().toISOString();
+
+          await txn.put(itemKey, item);
+
+          await this.addEvent(txn, {
+            item_id: item.id,
+            stage: "text",
+            action: "ai_text_generation_failed",
+            error: error.message
+          });
+
+          await this.enqueue(
+            txn,
+            "sendMessage",
+            {
+              chat_id: this.env.TELEGRAM_CHAT_ID,
+              text:
+                "Не удалось подготовить текст публикации.\n\n" +
+                `Материал: ${item.id}\n` +
+                "Статус: generation_failed\n" +
+                `Причина: ${error.message}`
+            }
+          );
+        });
+      }
     }
 
     return {
