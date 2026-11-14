@@ -1,20 +1,15 @@
-
 {
   "account": "OSINTNER",
   "language": "ru",
   "timezone": "Europe/Moscow",
-
   "publishing": {
     "feed_posts_per_day": 2,
     "feed_schedule": [
       "09:00",
       "18:30"
     ],
-    "reels_per_day": 3,
-    "reels_schedule": [],
     "schedule_timezone": "Europe/Moscow"
   },
-
   "content_strategy": {
     "topic_rotation": [
       "OSINT",
@@ -28,7 +23,6 @@
     "require_sources": true,
     "hashtags": false
   },
-
   "content_formats": {
     "feed_posts": {
       "enabled": true,
@@ -38,20 +32,8 @@
       "enabled": true,
       "aspect_ratio": "4:5",
       "individual_slide_descriptions": true
-    },
-    "reels": {
-      "enabled": true,
-      "per_day": 3,
-      "aspect_ratio": "9:16",
-      "animation": [
-        "parallax",
-        "minimal"
-      ],
-      "unique_images_required": true,
-      "simple_production": true
     }
   },
-
   "brand_identity": {
     "brand_positioning": "Premium investigative editorial media about OSINT, digital traces, corporate investigations and anti-fraud",
     "visual_keywords": [
@@ -77,7 +59,6 @@
       "Use only the headline, subtitle and content-related text requested for the specific image"
     ]
   },
-
   "typography": {
     "style": "bold modern editorial sans-serif",
     "headline_style": "extra bold Russian sans-serif",
@@ -99,7 +80,6 @@
       "No unnecessary text"
     ]
   },
-
   "negative_style_prompt": [
     "OSINTNER text",
     "OSINTNER logo",
@@ -124,6 +104,5 @@
     "generic stock photography",
     "visual clutter"
   ],
-
   "consistency_rule": "Preserve the approved OSINTNER visual identity: cold dark navy and blue-gray photographic atmosphere, dramatic corporate documentary photography, bold white Russian headlines, orange highlights and thin orange dividers. Never include OSINTNER text, logo, watermark or brand signature. Only display content-specific text requested for the current image."
 }
