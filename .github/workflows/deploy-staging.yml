@@ -7,6 +7,7 @@ on:
       - main
     paths:
       - "worker/src/index.js"
+      - "worker/src/**"
       - "config/settings.json"
       - "wrangler.jsonc"
       - ".github/workflows/deploy-staging.yml"
