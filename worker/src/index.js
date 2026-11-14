@@ -1,6 +1,7 @@
 
 const STAGES = ["topic", "text", "visual", "final"];
-
+import settings from "../../config/settings.json" with { type: "json" };
+const SETTINGS = settings;
 const STAGE_NAMES = {
   topic: "ТЕМА",
   text: "ТЕКСТ",
