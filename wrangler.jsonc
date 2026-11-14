@@ -5,7 +5,8 @@
   "compatibility_date": "2026-11-01",
   "workers_dev": true,
   "vars": {
-    "TELEGRAM_CHAT_ID": "1664476273"
+    "TELEGRAM_CHAT_ID": "1664476273",
+    "THREADS_PUBLISHING_ENABLED": "false"
   },
   "ai": {
     "binding": "AI"
