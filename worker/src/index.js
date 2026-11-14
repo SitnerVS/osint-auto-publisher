@@ -259,9 +259,8 @@ function parseVisualPlan(raw) {
   const start = source.indexOf("{"), end = source.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("Visual plan is not valid JSON");
   const plan = JSON.parse(source.slice(start, end + 1));
-  if (!plan || typeof plan !== "object" || Array.isArray(plan) || !["single", "carousel"].includes(plan.format) || !Array.isArray(plan.slides)) throw new Error("Visual plan has an invalid structure");
+  if (!plan || typeof plan !== "object" || Array.isArray(plan) || plan.format !== "single" || !Array.isArray(plan.slides)) throw new Error("Visual plan must use the single-image format");
   if (plan.slides.length !== 1) throw new Error("OSINTNER publication must contain exactly one image");
-  plan.format = "single";
   for (const slide of plan.slides) if (!slide || typeof slide.prompt !== "string" || slide.prompt.trim().length < 40) throw new Error("Visual plan contains an incomplete image prompt");
   return plan;
 }
@@ -1573,7 +1572,7 @@ export class ApprovalCoordinator {
       "Верни один объект slides с title как кратким названием идеи, prompt как точным описанием именно тематической векторной сцены и alt_text как доступным описанием изображения. Не добавляй заголовок/подзаголовок для нанесения на изображение. " +
       "Не выдумывай реальные документы, цифры, логотипы, интерфейсы, компании, доказательства или виновность." +
       rejectedVisualBlock + "\n\n" +
-      'Верни только JSON без markdown: {"format":"single|carousel","concept":"...","rationale":"...","slides":[{"title":"...","subtitle":"...","prompt":"...","alt_text":"..."}]}.';
+      'Верни только JSON без markdown: {"format":"single","concept":"...","rationale":"...","slides":[{"title":"...","prompt":"...","alt_text":"..."}]}.';
     const generatePlan = async (correction = "") => {
       const raw = await geminiGenerate(
         this.env,
