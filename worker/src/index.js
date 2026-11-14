@@ -172,21 +172,17 @@ async function generateCloudflareImage(env, prompt) {
   if (!env.AI || typeof env.AI.run !== "function") {
     throw new Error("Cloudflare Workers AI binding AI is not configured");
   }
-  const form = new FormData();
-  form.append("prompt", prompt);
-  form.append("width", "1024");
-  form.append("height", "1280");
-  form.append("steps", "25");
-  form.append("guidance", "4");
-  const serialized = new Response(form);
-  const result = await env.AI.run("@cf/black-forest-labs/flux-2-dev", {
-    multipart: {
-      body: serialized.body,
-      contentType: serialized.headers.get("content-type")
-    }
+  // Lucid Origin is selected for stronger prompt adherence and graphic-design styles.
+  // Unlike FLUX.2 dev, it accepts a direct JSON input rather than multipart form data.
+  const result = await env.AI.run("@cf/leonardo/lucid-origin", {
+    prompt,
+    width: 1024,
+    height: 1280,
+    guidance: 7.5,
+    num_steps: 30
   });
   if (!result || typeof result.image !== "string" || !result.image) {
-    throw new Error("Cloudflare AI returned no image data");
+    throw new Error("Leonardo Lucid Origin returned no image data");
   }
   const binary = atob(result.image);
   const bytes = new Uint8Array(binary.length);
@@ -290,7 +286,7 @@ async function generateAndStoreVisualAssets(env, itemId, plan, item) {
   const baseUrl = "https://osint-telegram-gateway-staging.vssitner.workers.dev";
   const basePrompt = [
     "ТЕМАТИЧЕСКАЯ СЦЕНА: " + String(slide.prompt).trim(),
-    "ОБЯЗАТЕЛЬНЫЙ СТИЛЬ — ЧИСТЫЙ 2D SVG VECTOR ART: изображение должно выглядеть как вручную собранная плоская векторная иллюстрация для премиального редакционного издания. Только двумерные формы, чёткие замкнутые контуры, ровные однотонные заливки и простая геометрия. Без имитации реального объекта.",
+    "ОБЯЗАТЕЛЬНЫЙ СТИЛЬ — 2D EDITORIAL VECTOR POSTER: clean flat vector illustration, SVG-like graphic design, geometric cut-paper composition, crisp outlines, uniform stroke width, solid matte fills. It must look like a professionally art-directed vector poster made from flat shapes, not an image of a physical scene.",
     "КРИТИЧЕСКИЙ ЗАПРЕТ НА ОБЪЁМ: абсолютно никаких 3D, CGI, объёмных предметов, теней (включая падающие и внутренние), градиентов, бликов, отражений, свечения, объёмного освещения, ambient occlusion, перспективной глубины, фасок, экструзии, моделирующего затенения и реалистичных текстур. Не добавляй светотеневую растяжку для создания объёма. Каждый участок цвета должен быть плоским и однородным.",
     "ТОЧНАЯ ПАЛИТРА: фон #0B0D0F и #15181B; светлые элементы #E7E9EA; вторичные #858B91; акцент #FF5A36; #A7D65C допустим только для одного небольшого маркера подтверждения. Не вводи другие цвета.",
     "Композиция: вертикаль 4:5, один главный смысловой объект и максимум два вспомогательных элемента. Главный объект должен быть крупным, узнаваемым и непосредственно раскрывать тему. Все предметы физически и геометрически самостоятельны, не пересекаются случайным образом, не сливаются, не деформируются и не имеют невозможных соединений. Ракурс преимущественно фронтальный или ортографический, без перспективного объёма.",
@@ -1645,7 +1641,7 @@ export class ApprovalCoordinator {
   getVisualStyleInstructions() {
     return (
       "УТВЕРЖДЁННАЯ ВИЗУАЛЬНАЯ СИСТЕМА OSINTNER — MODERN OSINT INVESTIGATIVE MEDIA / DIGITAL DETECTIVE / FORENSIC JOURNALISM / INTELLIGENCE BRIEFING. " +
-      "СТРОГО 2D: плоская редакционная векторная иллюстрация в эстетике SVG / premium editorial vector art. Только двумерные силуэты, геометрические контуры и ровные заливки. Чёткие замкнутые формы, единая толщина контуров, простые цветовые плоскости. " +
+      "СТРОГО 2D: flat vector editorial illustration, clean SVG-like graphic design, flat poster art, geometric cut-paper shapes, crisp closed contours, uniform line weight, solid matte color fills. Treat the image as a professionally designed 2D vector poster, not as a rendered scene. " +
       "ЗАПРЕЩЕНЫ ОБЪЁМ И СВЕТОТЕНЬ: никаких теней, падающих теней, градиентов, бликов, отражений, объёмного освещения, ambient occlusion, перспективного сокращения, глубины резкости, фасок, экструзии, 3D-форм, пластика, моделирования или псевдообъёмного затенения. Не имитировать предметную фотографию. " +
       "Основные цвета: глубокий почти чёрный #0B0D0F и графитовый #15181B; светлые элементы #E7E9EA; вторичные серо-стальные #858B91; основной акцент #FF5A36; цвет проверки #A7D65C использовать редко и только для конкретного маркера верификации. " +
       "Холодная тёмная редакционная атмосфера, серьёзный интеллектуальный тон, документальная точность, сдержанное напряжение без сенсационности. " +
