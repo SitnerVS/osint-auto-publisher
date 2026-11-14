@@ -10,11 +10,31 @@ const STAGE_NAMES = {
 
 const OUTBOX_RETRY_MS = 30_000;
 
+// ======================================================
+// COMMON HELPERS
+// ======================================================
+
 function json(data, status = 200) {
   return Response.json(data, { status });
 }
 
+function isAuthorizedChat(chat, env) {
+  return (
+    chat?.type === "private" &&
+    Boolean(env.TELEGRAM_CHAT_ID) &&
+    String(chat.id) === String(env.TELEGRAM_CHAT_ID)
+  );
+}
+
+// ======================================================
+// TELEGRAM API
+// ======================================================
+
 async function telegram(env, method, data) {
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    throw new Error("TELEGRAM_BOT_TOKEN is not configured");
+  }
+
   const response = await fetch(
     `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`,
     {
@@ -26,28 +46,41 @@ async function telegram(env, method, data) {
     }
   );
 
-  const result = await response.json();
+  let result;
+
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error(
+      `Telegram returned invalid JSON: ${response.status}`
+    );
+  }
 
   if (!response.ok || !result.ok) {
-    console.error(
-      "Telegram API error:",
+    console.error("Telegram API error:", {
       method,
-      response.status,
-      result.description || "Unknown error"
-    );
+      status: response.status,
+      description: result.description || "Unknown error"
+    });
 
-    throw new Error(`Telegram API error: ${method}`);
+    throw new Error(
+      `Telegram API error: ${method}, status ${response.status}`
+    );
   }
 
   return result;
 }
 
+// ======================================================
 // GEMINI AI
+// ======================================================
 
 async function geminiGenerate(env, prompt) {
   if (!env.GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY is not configured");
   }
+
+  console.log("Gemini request started");
 
   const response = await fetch(
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
@@ -75,17 +108,27 @@ async function geminiGenerate(env, prompt) {
     }
   );
 
-  const result = await response.json();
+  let result;
+
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error(
+      `Gemini returned invalid JSON: ${response.status}`
+    );
+  }
 
   if (!response.ok) {
-    console.error(
-      "Gemini API error:",
-      response.status,
-      result.error?.message || "Unknown error"
-    );
+    const errorMessage =
+      result.error?.message || "Unknown Gemini error";
+
+    console.error("Gemini API error:", {
+      status: response.status,
+      message: errorMessage
+    });
 
     throw new Error(
-      `Gemini API returned ${response.status}`
+      `Gemini API ${response.status}: ${errorMessage}`
     );
   }
 
@@ -100,13 +143,17 @@ async function geminiGenerate(env, prompt) {
       JSON.stringify(result).slice(0, 1500)
     );
 
-    throw new Error("Gemini returned empty response");
+    throw new Error("Gemini returned an empty response");
   }
+
+  console.log("Gemini generation successful");
 
   return answer;
 }
 
+// ======================================================
 // APPROVAL MESSAGE
+// ======================================================
 
 function approvalMessage(item, chatId) {
   return {
@@ -140,9 +187,15 @@ function approvalMessage(item, chatId) {
   };
 }
 
+// ======================================================
 // DURABLE OBJECT REQUEST
+// ======================================================
 
 async function callCoordinator(env, path, payload) {
+  if (!env.APPROVAL_COORDINATOR) {
+    throw new Error("APPROVAL_COORDINATOR is not configured");
+  }
+
   const id = env.APPROVAL_COORDINATOR.idFromName(
     "osint-editorial"
   );
@@ -160,7 +213,15 @@ async function callCoordinator(env, path, payload) {
     }
   );
 
-  const result = await response.json();
+  let result;
+
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error(
+      `Approval Coordinator returned invalid JSON: ${response.status}`
+    );
+  }
 
   if (!response.ok || !result.ok) {
     throw new Error(
@@ -171,10 +232,14 @@ async function callCoordinator(env, path, payload) {
   return result;
 }
 
+// ======================================================
 // MAIN WORKER
+// ======================================================
 
 export default {
   async fetch(request, env) {
+    // HEALTH CHECK
+
     if (request.method === "GET") {
       return new Response(
         "OSINT Editorial Gateway is running."
@@ -195,8 +260,11 @@ export default {
 
     if (
       !suppliedSecret ||
+      !env.TELEGRAM_WEBHOOK_SECRET ||
       suppliedSecret !== env.TELEGRAM_WEBHOOK_SECRET
     ) {
+      console.error("Webhook rejected: invalid secret");
+
       return new Response("Unauthorized", {
         status: 401
       });
@@ -207,13 +275,23 @@ export default {
     try {
       update = await request.json();
     } catch {
+      console.error("Webhook received invalid JSON");
+
       return new Response("Invalid JSON", {
         status: 400
       });
     }
 
     try {
+      console.log("Telegram update received:", {
+        updateId: update.update_id,
+        hasMessage: Boolean(update.message),
+        hasCallback: Boolean(update.callback_query)
+      });
+
+      // ==================================================
       // TELEGRAM MESSAGES
+      // ==================================================
 
       if (update.message) {
         const message = update.message;
@@ -226,46 +304,87 @@ export default {
           message.from?.id ?? ""
         );
 
-        const allowed =
-          chatId === String(env.TELEGRAM_CHAT_ID) &&
-          userId === String(env.TELEGRAM_CHAT_ID) &&
-          message.chat?.type === "private";
-
         const command = String(message.text ?? "")
           .trim()
           .split(/\s+/)[0]
           .split("@")[0];
 
-        console.log("Telegram message received:", {
-          command,
-          privateChat: message.chat?.type === "private",
-          chatAllowed:
-            chatId === String(env.TELEGRAM_CHAT_ID),
-          userAllowed:
-            userId === String(env.TELEGRAM_CHAT_ID)
+        const allowed = isAuthorizedChat(
+          message.chat,
+          env
+        );
+
+        console.log("TELEGRAM DIAGNOSTICS:", {
+          updateId: update.update_id,
+          command: command || "no_command",
+          chatType: message.chat?.type,
+          chatIdPresent: Boolean(chatId),
+          userIdPresent: Boolean(userId),
+          chatAllowed: allowed,
+          chatIdConfigured: Boolean(env.TELEGRAM_CHAT_ID),
+          geminiKeyConfigured: Boolean(env.GEMINI_API_KEY)
         });
 
-        // START
+        // ACCESS DENIED
 
-        if (allowed && command === "/start") {
+        if (!allowed) {
+          console.error(
+            "MESSAGE REJECTED: unauthorized chat",
+            {
+              chatType: message.chat?.type,
+              chatIdPresent: Boolean(chatId)
+            }
+          );
+
+          return new Response("OK");
+        }
+
+        // /START
+
+        if (command === "/start") {
           await telegram(env, "sendMessage", {
             chat_id: chatId,
             text:
               "OSINT Editorial подключён.\n" +
-              "Система согласований готова."
+              "Система согласований готова.\n\n" +
+              "Доступные команды:\n" +
+              "/test — тест согласования\n" +
+              "/ai_test — проверка Gemini\n" +
+              "/id — проверка Telegram ID"
           });
+        }
 
-        // APPROVAL TEST
+        // /ID
 
-        } else if (allowed && command === "/test") {
+        else if (command === "/id") {
+          await telegram(env, "sendMessage", {
+            chat_id: chatId,
+            text:
+              "TELEGRAM DIAGNOSTICS\n\n" +
+              `Chat ID: ${chatId}\n` +
+              `User ID: ${userId}\n` +
+              `Chat type: ${message.chat?.type}\n` +
+              `Gemini key: ${env.GEMINI_API_KEY ? "configured" : "missing"}\n` +
+              `Coordinator: ${env.APPROVAL_COORDINATOR ? "configured" : "missing"}`
+          });
+        }
+
+        // /TEST
+
+        else if (command === "/test") {
+          console.log("Approval test started");
+
           await callCoordinator(env, "/test", {
             user_id: userId,
             chat_id: chatId
           });
+        }
 
-        // GEMINI TEST
+        // /AI_TEST
 
-        } else if (allowed && command === "/ai_test") {
+        else if (command === "/ai_test") {
+          console.log("GEMINI TEST STARTED");
+
           await telegram(env, "sendMessage", {
             chat_id: chatId,
             text: "Запускаю Gemini. Подожди немного..."
@@ -282,27 +401,46 @@ export default {
               text: answer
             });
 
-            console.log("Gemini generation successful");
+            console.log("GEMINI TEST COMPLETED");
 
           } catch (error) {
             console.error(
-              "Gemini command failed:",
+              "GEMINI COMMAND FAILED:",
               error.message
             );
 
             await telegram(env, "sendMessage", {
               chat_id: chatId,
               text:
-                "Не удалось получить ответ от Gemini.\n" +
-                "Подробности ошибки записаны в Cloudflare Logs."
+                "Не удалось получить ответ от Gemini.\n\n" +
+                `Причина: ${error.message}`
             });
           }
         }
+
+        // UNKNOWN COMMAND
+
+        else if (command.startsWith("/")) {
+          await telegram(env, "sendMessage", {
+            chat_id: chatId,
+            text:
+              "Неизвестная команда.\n\n" +
+              "Доступные команды:\n" +
+              "/start\n" +
+              "/test\n" +
+              "/ai_test\n" +
+              "/id"
+          });
+        }
       }
 
+      // ==================================================
       // INLINE BUTTON CALLBACKS
+      // ==================================================
 
       if (update.callback_query) {
+        console.log("Callback query received");
+
         await callCoordinator(env, "/callback", {
           callback: update.callback_query
         });
@@ -313,7 +451,8 @@ export default {
     } catch (error) {
       console.error(
         "Webhook processing failed:",
-        error.message
+        error.message,
+        error.stack || ""
       );
 
       return new Response("Internal error", {
@@ -323,7 +462,9 @@ export default {
   }
 };
 
+// ======================================================
 // APPROVAL COORDINATOR
+// ======================================================
 
 export class ApprovalCoordinator {
   constructor(ctx, env) {
@@ -366,6 +507,10 @@ export class ApprovalCoordinator {
           ? await this.handleTest(payload)
           : await this.handleCallback(payload);
 
+      if (!result.ok) {
+        return json(result, 403);
+      }
+
       await this.ctx.storage.setAlarm(
         Date.now() + OUTBOX_RETRY_MS
       );
@@ -387,7 +532,9 @@ export class ApprovalCoordinator {
     }
   }
 
+  // ==================================================
   // OUTBOX
+  // ==================================================
 
   async enqueue(txn, method, data) {
     const id = crypto.randomUUID();
@@ -399,7 +546,9 @@ export class ApprovalCoordinator {
     });
   }
 
+  // ==================================================
   // AUDIT EVENTS
+  // ==================================================
 
   async addEvent(txn, event) {
     const id = crypto.randomUUID();
@@ -413,17 +562,21 @@ export class ApprovalCoordinator {
     );
   }
 
+  // ==================================================
   // TEST MATERIAL
+  // ==================================================
 
   async handleTest(payload) {
     const expectedId = String(
-      this.env.TELEGRAM_CHAT_ID
+      this.env.TELEGRAM_CHAT_ID ?? ""
     );
 
     if (
-      String(payload.user_id ?? "") !== expectedId ||
+      !expectedId ||
       String(payload.chat_id ?? "") !== expectedId
     ) {
+      console.error("Coordinator test unauthorized");
+
       return {
         ok: false,
         error: "Unauthorized"
@@ -455,7 +608,7 @@ export class ApprovalCoordinator {
           item_id: item.id,
           stage: "topic",
           action: "test_created",
-          user_id: expectedId
+          user_id: String(payload.user_id ?? "")
         });
 
         await this.enqueue(
@@ -476,7 +629,9 @@ export class ApprovalCoordinator {
     };
   }
 
+  // ==================================================
   // APPROVAL CALLBACK
+  // ==================================================
 
   async handleCallback(payload) {
     const q = payload.callback;
@@ -497,9 +652,10 @@ export class ApprovalCoordinator {
     );
 
     const authorized =
+      Boolean(this.env.TELEGRAM_CHAT_ID) &&
       chatId === String(this.env.TELEGRAM_CHAT_ID) &&
-      userId === String(this.env.TELEGRAM_CHAT_ID) &&
-      q.message?.chat?.type === "private";
+      q.message?.chat?.type === "private" &&
+      userId === chatId;
 
     if (!authorized) {
       await telegram(
@@ -744,7 +900,9 @@ export class ApprovalCoordinator {
     };
   }
 
+  // ==================================================
   // OUTBOX DELIVERY
+  // ==================================================
 
   async flushOutbox() {
     const messages = await this.ctx.storage.list({
@@ -776,7 +934,9 @@ export class ApprovalCoordinator {
     }
   }
 
+  // ==================================================
   // AUTOMATIC RETRY
+  // ==================================================
 
   async alarm() {
     await this.flushOutbox();
