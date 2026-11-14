@@ -1857,8 +1857,13 @@ export class ApprovalCoordinator {
         const index = STAGES.indexOf(currentStage);
 
         if (currentStage === "final") {
-          item.status = "publication_approved";
-          item.publication_approved_at = timestamp;
+          if (item.is_test) {
+            item.status = "test_completed";
+            item.test_completed_at = timestamp;
+          } else {
+            item.status = "publication_approved";
+            item.publication_approved_at = timestamp;
+          }
           delete item.approval_id;
 
         } else if (
@@ -1939,9 +1944,11 @@ export class ApprovalCoordinator {
       const acknowledgement =
         action === "approve"
           ? (
-              item.status === "publication_approved"
-                ? "ФИНАЛЬНОЕ РАЗРЕШЕНИЕ ПОЛУЧЕНО. Публикация одобрена."
-                : currentStage === "topic" && !item.is_test
+              item.status === "test_completed"
+                ? "Тестовый цикл согласования завершён. Публикация в Threads не выполнялась."
+                : item.status === "publication_approved"
+                  ? "ФИНАЛЬНОЕ РАЗРЕШЕНИЕ ПОЛУЧЕНО. Публикация одобрена."
+                  : currentStage === "topic" && !item.is_test
                   ? "Тема одобрена. Начинаю подготовку текста..."
                   : currentStage === "text" && !item.is_test
                     ? "Текст одобрен. Начинаю подготовку визуальной концепции..."
