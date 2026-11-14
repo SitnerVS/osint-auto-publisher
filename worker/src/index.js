@@ -802,6 +802,22 @@ export default {
           });
         }
 
+        else if (command === "/publish_retry") {
+          const itemId = String(message.text || "").trim().split(/\\s+/)[1] || "";
+          if (!/^material-[a-f0-9-]+$/i.test(itemId) && !/^visual-test-[a-f0-9-]+$/i.test(itemId)) {
+            await telegram(env, "sendMessage", {
+              chat_id: chatId,
+              text: "Укажи ID материала: /publish_retry material-xxxxxxxx"
+            });
+          } else {
+            await callCoordinator(env, "/publish-retry", {
+              user_id: userId,
+              chat_id: chatId,
+              item_id: itemId
+            });
+          }
+        }
+
         else if (command === "/generate") {
           console.log("CONTENT GENERATION REQUESTED");
 
@@ -1003,6 +1019,7 @@ export class ApprovalCoordinator {
       path !== "/test" &&
       path !== "/visual-test" &&
       path !== "/generate" &&
+      path !== "/publish-retry" &&
       path !== "/threads/oauth/save-state" &&
       path !== "/threads/oauth/consume-state" &&
       path !== "/threads/oauth/save-token" &&
@@ -1033,6 +1050,19 @@ export class ApprovalCoordinator {
         result = await this.handleVisualTest(payload);
       } else if (path === "/generate") {
         result = await this.handleGenerate(payload);
+      } else if (path === "/publish-retry") {
+        const expectedId = String(this.env.TELEGRAM_CHAT_ID || "");
+        if (String(payload.chat_id || "") !== expectedId || String(payload.user_id || "") !== expectedId) {
+          result = { ok: false, error: "Unauthorized" };
+        } else {
+          const itemId = String(payload.item_id || "");
+          const item = await this.ctx.storage.get("item:" + itemId);
+          if (!item || item.status !== "publication_approved" || item.threads_publication_status !== "created") {
+            result = { ok: false, error: "No resumable Threads image container exists for this item" };
+          } else {
+            result = await this.publishApprovedThreadsPost(itemId);
+          }
+        }
       } else if (path === "/threads/oauth/save-state") {
         const state = String(payload.state || "");
         if (!/^[0-9a-f-]{36}$/i.test(state)) {
@@ -2280,7 +2310,7 @@ export class ApprovalCoordinator {
         });
         await telegram(this.env, "sendMessage", {
           chat_id: this.env.TELEGRAM_CHAT_ID,
-          text: "Threads ещё обрабатывает изображение. Контейнер сохранён; повторная отправка нового изображения не выполняется. Повтори финальную проверку позже. Материал: " + itemId
+          text: "Threads ещё обрабатывает изображение. Контейнер сохранён. Через минуту отправь команду /publish_retry " + itemId + " — повторно будет проверен тот же контейнер, без создания дубля."
         });
         return { ok: false, pending_processing: true, container_id: containerId };
       }
