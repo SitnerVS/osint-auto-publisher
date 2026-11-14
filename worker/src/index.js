@@ -534,7 +534,7 @@ export default {
           const label = username ? "@" + username : "аккаунт Instagram";
           await telegram(env, "sendMessage", {
             chat_id: env.TELEGRAM_CHAT_ID,
-            text: "Instagram успешно подключён: " + label + ". Теперь ежечасная рубрика сможет публиковаться одновременно в Threads и Instagram."
+            text: "Instagram успешно подключён: " + label + ". Ежечасная юмористическая рубрика публикуется только в Threads. Instagram предназначен для обычных редакционных материалов OSINTNER."
           });
           return new Response("Instagram успешно подключён: " + label + ". Долгосрочный токен сохранён на стороне Worker. Эту страницу можно закрыть.", {
             headers: { "Content-Type": "text/plain; charset=utf-8" }
@@ -1270,7 +1270,7 @@ export class ApprovalCoordinator {
   }
 
   // ==================================================
-  // ALTERNATIVE TOPIC AFTER REJECTION
+  // ALTERNATIVE TOPIC ON REVISION
   // ==================================================
 
   async generateAlternativeTopic(itemId) {
@@ -1664,7 +1664,7 @@ export class ApprovalCoordinator {
   }
 
   // ==================================================
-  // ALTERNATIVE TEXT AFTER REJECTION
+  // ALTERNATIVE TEXT ON REVISION
   // ==================================================
 
   async generateAlternativeText(itemId) {
@@ -1700,7 +1700,7 @@ export class ApprovalCoordinator {
   }
 
   // ==================================================
-  // ALTERNATIVE VISUAL AFTER REJECTION
+  // ALTERNATIVE VISUAL ON REVISION
   // ==================================================
 
   async generateAlternativeVisual(itemId) {
