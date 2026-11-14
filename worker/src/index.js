@@ -1576,7 +1576,7 @@ export class ApprovalCoordinator {
     const generatePlan = async (correction = "") => {
       const raw = await geminiGenerate(
         this.env,
-        prompt + (correction ? "\\n\\nОБЯЗАТЕЛЬНО ИСПРАВЬ ПРЕДЫДУЩУЮ КОНЦЕПЦИЮ: " + correction : ""),
+        prompt + (correction ? " CORRECTION REQUIRED: " + correction : ""),
         { task: "visual_brief", temperature: 0.45, maxOutputTokens: 2200 }
       );
       return parseVisualPlan(raw);
@@ -1584,11 +1584,11 @@ export class ApprovalCoordinator {
     const validateRelevance = async plan => {
       const reviewRaw = await geminiGenerate(
         this.env,
-        "Ты независимый арт-директор и редактор OSINTNER. Проверь, действительно ли предлагаемая векторная иллюстрация изображает ИМЕННО тему и смысл текста, а не случайный универсальный сюжет. " +
-        "Сопоставь заголовок, текст публикации, концепцию, prompt и alt_text. Отметь false, если отсутствует главный объект/действие темы, если визуал можно без изменений применить к десяткам несвязанных тем, если предметы не объясняют заявленный процесс или если сцена противоречит материалу. " +
-        "Положительный результат допустим только при очевидной предметной связи. Верни только JSON: {\\"relevant\\":true|false,\\"reason\\":\\"короткое объяснение\\"}.\\n" +
-        "ТЕМА: " + String(item.title || "") + "\\nТЕКСТ: " + String(item.text_content || item.content || "").slice(0, 3500) +
-        "\\nВИЗУАЛ: " + JSON.stringify({concept:plan.concept,rationale:plan.rationale,slide:plan.slides[0]}),
+        "Ты независимый арт-директор и редактор OSINTNER. Проверь, действительно ли предлагаемая векторная иллюстрация изображает именно тему и смысл текста, а не случайный универсальный сюжет. " +
+        "Сопоставь заголовок, текст публикации, концепцию, prompt и alt_text. Отметь relevant=false, если отсутствует главный объект или действие темы, если визуал можно без изменений применить к десяткам несвязанных тем, если элементы не объясняют заявленный процесс или если сцена противоречит материалу. " +
+        "Положительный результат допустим только при очевидной предметной связи. Верни только JSON object с boolean key relevant и string key reason. " +
+        "ТЕМА: " + String(item.title || "") + " ТЕКСТ: " + String(item.text_content || item.content || "").slice(0, 3500) +
+        " ВИЗУАЛ: " + JSON.stringify({concept:plan.concept,rationale:plan.rationale,slide:plan.slides[0]}),
         { task: "visual_relevance_check", temperature: 0.1, maxOutputTokens: 180 }
       );
       const first = reviewRaw.indexOf("{");
