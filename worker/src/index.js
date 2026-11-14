@@ -2312,7 +2312,7 @@ export class ApprovalCoordinator {
           chat_id: this.env.TELEGRAM_CHAT_ID,
           text: "Threads ещё обрабатывает изображение. Контейнер сохранён. Через минуту отправь команду /publish_retry " + itemId + " — повторно будет проверен тот же контейнер, без создания дубля."
         });
-        return { ok: false, pending_processing: true, container_id: containerId };
+        return { ok: true, pending_processing: true, container_id: containerId };
       }
 
       await this.ctx.storage.put(itemKey, {
