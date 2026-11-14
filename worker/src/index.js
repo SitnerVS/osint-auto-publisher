@@ -2386,6 +2386,19 @@ export class ApprovalCoordinator {
         });
       } else if (latestItem?.threads_publication_status === "created") {
         // Keep the known container so /publish_retry can resume it without creating another.
+      } else if (latestItem?.threads_publication_status === "creating" && latestItem.threads_container_id) {
+        await this.ctx.storage.put(itemKey, {
+          ...latestItem,
+          threads_publication_status: "created",
+          threads_publication_error: String(error.message || error).slice(0, 500)
+        });
+      } else if (latestItem?.threads_publication_status === "creating") {
+        await this.ctx.storage.put(itemKey, {
+          ...latestItem,
+          threads_publication_status: "create_unknown",
+          threads_publication_error: String(error.message || error).slice(0, 500),
+          threads_publication_failed_at: new Date().toISOString()
+        });
       } else if (!["create_unknown", "publish_unknown"].includes(latestItem?.threads_publication_status)) {
         await this.ctx.storage.put(itemKey, {
           ...latestItem,
