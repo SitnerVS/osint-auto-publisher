@@ -8,7 +8,8 @@
       "09:00",
       "18:30"
     ],
-    "schedule_timezone": "Europe/Moscow"
+    "schedule_timezone": "Europe/Moscow",
+    "approval_required": true
   },
   "content_strategy": {
     "topic_rotation": [
@@ -24,14 +25,14 @@
     "hashtags": false
   },
   "content_formats": {
-    "feed_posts": {
+    "threads_posts": {
       "enabled": true,
+      "format": "single_image_post",
+      "images_per_post": 1,
       "aspect_ratio": "4:5"
     },
     "carousels": {
-      "enabled": true,
-      "aspect_ratio": "4:5",
-      "individual_slide_descriptions": true
+      "enabled": false
     }
   },
   "brand_identity": {
@@ -47,62 +48,59 @@
       "anti-fraud",
       "evidence"
     ],
-    "visual_principle": "Every image should look like the cover of a premium investigative documentary or business crime investigation.",
+    "visual_principle": "One precise topic-specific investigative vector illustration per single Threads post",
+    "visual_style": "Modern OSINT investigative media / digital detective / forensic journalism / intelligence briefing; premium flat editorial vector graphics",
+    "palette": {
+      "background": "#0B0D0F",
+      "surface": "#15181B",
+      "primary": "#E7E9EA",
+      "secondary": "#858B91",
+      "accent": "#FF5A36",
+      "verification": "#A7D65C"
+    },
     "branding_rules": [
-      "Never display the text OSINTNER inside generated images",
-      "Never display the brand name or brand lettering",
-      "Never generate a brand logo or brand symbol",
-      "Never add watermarks",
-      "Never add social media handles",
-      "Never add decorative brand signatures",
-      "Keep the image visually clean and editorial",
-      "Generated photographic layer must contain absolutely no text of any kind; headlines and subtitles are added only in a separate external layout stage"
+      "Never display OSINTNER text, logo, brand name, watermark or social handle in generated images",
+      "No text, letters, numbers, pseudo-text or random symbols in generated images",
+      "One image per one Threads post",
+      "Every image must clearly and specifically represent the exact topic of its post",
+      "Use only the approved palette and restrained vector editorial visual language"
     ]
   },
   "typography": {
-    "style": "bold modern editorial sans-serif",
-    "headline_style": "extra bold Russian sans-serif",
-    "headline_weight": "heavy",
-    "headline_color": "#F5F5F5",
-    "highlight_color": "#F26A1B",
-    "subtitle_color": "#F5F5F5",
+    "style": "No typography inside generated images",
     "rules": [
-      "Large readable headline — apply only during separate external cover layout, never inside generated photography",
-      "White text is dominant in the separate external cover layout only",
-      "Highlight selected words in orange in the separate external cover layout only",
-      "Short white subtitle in the separate external cover layout only",
-      "Thin orange horizontal divider in the separate external cover layout only",
-      "Strict left alignment",
-      "No decorative fonts",
-      "No brand name",
-      "No logo",
-      "No watermark",
-      "No unnecessary text"
+      "No text or typography in generated visuals; the post description is published as the caption in the same Threads post",
+      "No brand name, logo, watermark or signature"
     ]
   },
   "negative_style_prompt": [
-    "OSINTNER text",
-    "OSINTNER logo",
-    "brand name",
-    "brand lettering",
-    "watermark",
-    "social media handle",
-    "brand signature",
+    "photorealism",
+    "photography",
+    "3D",
+    "plastic CGI",
+    "anime",
+    "cartoon",
     "cyberpunk",
     "hacker in hoodie",
-    "matrix green rain",
+    "matrix rain",
     "neon RGB",
     "futuristic holograms",
     "sci-fi interface",
-    "warm brown color grading",
-    "golden cinematic lighting",
     "technical dashboards",
     "complex HUD",
-    "cartoon",
-    "anime",
-    "plastic CGI",
-    "generic stock photography",
-    "visual clutter"
+    "warm brown palette",
+    "golden lighting",
+    "generic stock imagery",
+    "visual clutter",
+    "text",
+    "letters",
+    "numbers",
+    "pseudo-text",
+    "logos",
+    "watermarks"
   ],
-  "consistency_rule": "Preserve the approved OSINTNER visual identity: cold dark navy and blue-gray photographic atmosphere and dramatic corporate documentary photography. The generated photograph must contain absolutely no text, letters, numbers, symbols, logos, watermarks or signatures. Bold white Russian headlines, orange highlights and thin orange dividers belong only to a separate external layout stage after image generation."
+  "consistency_rule": "Every editorial Threads post contains exactly one topic-specific vector image and one Russian caption in the same post. Flat premium investigative editorial vector style. Strict palette #0B0D0F #15181B #E7E9EA #858B91 with accent #FF5A36 and rare verification green #A7D65C. No text of any kind, no logos, no watermark. Never create a carousel for an editorial material.",
+  "platforms": [
+    "threads"
+  ]
 }
