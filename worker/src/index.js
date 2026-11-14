@@ -2279,7 +2279,16 @@ export class ApprovalCoordinator {
         containerStatus = String(statusResult.status || "");
         containerError = String(statusResult.error_message || "");
         if (containerStatus === "FINISHED") break;
-        if (["ERROR", "EXPIRED", "PUBLISHED"].includes(containerStatus)) {
+        if (containerStatus === "PUBLISHED") {
+          await this.ctx.storage.put(itemKey, {
+            ...item,
+            threads_publication_status: "publish_unknown",
+            threads_container_id: containerId,
+            threads_publication_error: "Container reports PUBLISHED before this workflow received a publish ID"
+          });
+          throw new Error("Threads container is already PUBLISHED; automatic retry is blocked to prevent a duplicate");
+        }
+        if (["ERROR", "EXPIRED"].includes(containerStatus)) {
           throw new Error("Threads container status " + containerStatus + (containerError ? ": " + containerError : ""));
         }
         if (attempt < 14) await new Promise(resolve => setTimeout(resolve, 2000));
@@ -2355,7 +2364,17 @@ export class ApprovalCoordinator {
       return { ok: true, post_id: String(publishResult.id), permalink };
     } catch (error) {
       const latestItem = await this.ctx.storage.get(itemKey);
-      if (!["create_unknown", "publish_unknown"].includes(latestItem?.threads_publication_status)) {
+      if (latestItem?.threads_publication_status === "published") {
+        return { ok: true, post_id: latestItem.threads_post_id || "", permalink: latestItem.threads_permalink || "" };
+      }
+      if (latestItem?.threads_publication_status === "publishing") {
+        await this.ctx.storage.put(itemKey, {
+          ...latestItem,
+          threads_publication_status: "publish_unknown",
+          threads_publication_error: String(error.message || error).slice(0, 500),
+          threads_publication_failed_at: new Date().toISOString()
+        });
+      } else if (!["create_unknown", "publish_unknown"].includes(latestItem?.threads_publication_status)) {
         await this.ctx.storage.put(itemKey, {
           ...latestItem,
           threads_publication_status: "failed",
