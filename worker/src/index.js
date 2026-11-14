@@ -164,69 +164,29 @@ async function telegram(env, method, data) {
 // CLOUDFLARE WORKERS AI — IMAGE GENERATION
 // ======================================================
 
-async function generateCloudflareImage(env, prompt, options = {}) {
+async function generateCloudflareImage(env, prompt) {
   if (!env.AI || typeof env.AI.run !== "function") {
     throw new Error("Cloudflare Workers AI binding AI is not configured");
   }
-
   const form = new FormData();
   form.append("prompt", prompt);
   form.append("width", "1024");
   form.append("height", "1280");
   form.append("steps", "25");
   form.append("guidance", "4");
-
-  if (options.useStyleReference) {
-    let referenceBytes = await env.EDITORIAL_DATA.get("osintner:style-reference:v1", "arrayBuffer");
-    if (!referenceBytes) {
-      const referenceResponse = await fetch(
-        "https://raw.githubusercontent.com/SitnerVS/osint-auto-publisher/main/worker/assets/osintner-style-reference.jpg"
-      );
-      if (!referenceResponse.ok) {
-        throw new Error("OSINTNER style reference could not be loaded: HTTP " + referenceResponse.status);
-      }
-      referenceBytes = await referenceResponse.arrayBuffer();
-      await env.EDITORIAL_DATA.put("osintner:style-reference:v1", referenceBytes, {
-        expirationTtl: 60 * 60 * 24 * 90
-      });
-    }
-    form.append(
-      "input_image_0",
-      new Blob([referenceBytes], { type: "image/jpeg" }),
-      "osintner-style-reference.jpg"
-    );
-    form.set(
-      "prompt",
-      "Use reference image 0 ONLY for OSINTNER photographic style: cold blue-gray color grading, dark navy atmosphere, restrained cinematic documentary lighting, realistic photographic materials, controlled contrast and editorial restraint. Do not copy the reference image's person, phone, buildings, objects, framing, layout, text, logos, symbols or subject matter. Create a completely new scene based only on the prompt below. " + prompt
-    );
-  }
-
-  // FLUX.2 Dev accepts multipart form data and up to four reference images.
   const serialized = new Response(form);
-  const body = serialized.body;
-  const contentType = serialized.headers.get("content-type");
-
-  const result = await env.AI.run(
-    "@cf/black-forest-labs/flux-2-dev",
-    {
-      multipart: {
-        body,
-        contentType
-      }
+  const result = await env.AI.run("@cf/black-forest-labs/flux-2-dev", {
+    multipart: {
+      body: serialized.body,
+      contentType: serialized.headers.get("content-type")
     }
-  );
-
+  });
   if (!result || typeof result.image !== "string" || !result.image) {
     throw new Error("Cloudflare AI returned no image data");
   }
-
   const binary = atob(result.image);
   const bytes = new Uint8Array(binary.length);
-
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }
 
@@ -803,7 +763,7 @@ export default {
         }
 
         else if (command === "/publish_retry") {
-          const itemId = String(message.text || "").trim().split(/\\s+/)[1] || "";
+          const itemId = String(message.text || "").trim().split(/\s+/)[1] || "";
           if (!/^material-[a-f0-9-]+$/i.test(itemId) && !/^visual-test-[a-f0-9-]+$/i.test(itemId)) {
             await telegram(env, "sendMessage", {
               chat_id: chatId,
@@ -842,13 +802,7 @@ export default {
 
           try {
             const prompt =
-              "Premium investigative documentary photography for a serious OSINT and corporate anti-fraud editorial publication. " +
-              "A realistic, carefully composed dark corporate office desk with authentic printed financial audit documents, " +
-              "a closed dark laptop and a restrained orange evidence marker. Cold dark navy and blue-gray photographic atmosphere, " +
-              "dramatic but natural documentary lighting, subtle film grain, realistic materials, sophisticated forensic journalism, " +
-              "high-end editorial photography. Vertical portrait composition, 4:5 aspect ratio. " +
-              "No readable text, no letters, no numbers, no logos, no watermark, no people, no cyberpunk, no neon, " +
-              "no holograms, no dashboards, no HUD, no security camera interface, no hacker clichés, no visual clutter.";
+              "A single flat editorial vector illustration about tracing a company's digital footprint: one central abstract corporate building silhouette connected by a precise route to three distinct evidence nodes representing domain registration, public company records and related web assets. The relationships must be visually clear and unmistakably about corporate digital-footprint research. Premium OSINT investigative editorial vector style, strict palette #0B0D0F #15181B #E7E9EA #858B91, orange accent #FF5A36, rare verification green #A7D65C, geometric shapes, clean contours, vertical 4:5 composition. No photography, no 3D, no text, letters, numbers, pseudo-text, logos, watermarks, dashboards, cyberpunk, neon or visual clutter.";
 
             const imageBytes = await generateCloudflareImage(env, prompt);
 
