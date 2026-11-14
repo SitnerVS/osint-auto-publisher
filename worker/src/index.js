@@ -921,19 +921,18 @@ export default {
         });
         const editorialSlots = SETTINGS.publishing.feed_schedule || [];
         if (editorialSlots.includes(localTime)) {
-          const result = await callCoordinator(env, "/generate", {
+          const editorialResult = await callCoordinator(env, "/generate", {
             user_id: env.TELEGRAM_CHAT_ID,
             chat_id: env.TELEGRAM_CHAT_ID,
             scheduled_at: controller.scheduledTime,
             schedule_key: "editorial:" + new Date(controller.scheduledTime).toISOString()
           });
-          console.log("Scheduled editorial approval workflow started:", result);
-          return;
+          console.log("Scheduled editorial approval workflow started:", editorialResult);
         }
-        const result = await callCoordinator(env, "/hourly-trend", {
+        const hourlyResult = await callCoordinator(env, "/hourly-trend", {
           scheduled_at: controller.scheduledTime
         });
-        console.log("Hourly social publishing workflow finished:", result);
+        console.log("Hourly social publishing workflow finished:", hourlyResult);
       } catch (error) {
         console.error("Scheduled social workflow failed:", error.message);
         try {
