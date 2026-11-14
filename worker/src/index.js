@@ -773,7 +773,7 @@ export default {
             chat_id: chatId,
             text: status.connected
               ? "THREADS STATUS\nПодключённый аккаунт: @" + String(status.username || "имя не получено") + "\nТокен: " + (status.expired ? "истёк" : "действителен") + (expiry ? "\nСрок действия до: " + expiry : "")
-              : "THREADS STATUS\nАккаунт Threads пока не авторизован. Для публикаций требуется подключение через /threads/connect."
+              : "THREADS STATUS\nАккаунт Threads пока не авторизован. Для подключения открой ссылку:\nhttps://osint-telegram-gateway-staging.vssitner.workers.dev/threads/connect"
           });
         }
 
