@@ -31,7 +31,7 @@ jobs:
 
       - name: Validate JavaScript syntax
         run: |
-          node --check worker/src/index.js
+          node --input-type=module --check < worker/src/index.js
           echo "JavaScript syntax is valid"
 
       - name: Deploy to Cloudflare Staging
