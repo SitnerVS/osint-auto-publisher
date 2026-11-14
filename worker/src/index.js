@@ -1573,10 +1573,41 @@ export class ApprovalCoordinator {
       "Не выдумывай реальные документы, цифры, логотипы, интерфейсы, компании, доказательства или виновность." +
       rejectedVisualBlock + "\n\n" +
       'Верни только JSON без markdown: {"format":"single|carousel","concept":"...","rationale":"...","slides":[{"title":"...","subtitle":"...","prompt":"...","alt_text":"..."}]}.';
-    const raw = await geminiGenerate(this.env, prompt, { task: "visual_brief", temperature: 0.7, maxOutputTokens: 3000 });
-    const plan = parseVisualPlan(raw);
+    const generatePlan = async (correction = "") => {
+      const raw = await geminiGenerate(
+        this.env,
+        prompt + (correction ? "\\n\\nОБЯЗАТЕЛЬНО ИСПРАВЬ ПРЕДЫДУЩУЮ КОНЦЕПЦИЮ: " + correction : ""),
+        { task: "visual_brief", temperature: 0.45, maxOutputTokens: 2200 }
+      );
+      return parseVisualPlan(raw);
+    };
+    const validateRelevance = async plan => {
+      const reviewRaw = await geminiGenerate(
+        this.env,
+        "Ты независимый арт-директор и редактор OSINTNER. Проверь, действительно ли предлагаемая векторная иллюстрация изображает ИМЕННО тему и смысл текста, а не случайный универсальный сюжет. " +
+        "Сопоставь заголовок, текст публикации, концепцию, prompt и alt_text. Отметь false, если отсутствует главный объект/действие темы, если визуал можно без изменений применить к десяткам несвязанных тем, если предметы не объясняют заявленный процесс или если сцена противоречит материалу. " +
+        "Положительный результат допустим только при очевидной предметной связи. Верни только JSON: {\\"relevant\\":true|false,\\"reason\\":\\"короткое объяснение\\"}.\\n" +
+        "ТЕМА: " + String(item.title || "") + "\\nТЕКСТ: " + String(item.text_content || item.content || "").slice(0, 3500) +
+        "\\nВИЗУАЛ: " + JSON.stringify({concept:plan.concept,rationale:plan.rationale,slide:plan.slides[0]}),
+        { task: "visual_relevance_check", temperature: 0.1, maxOutputTokens: 180 }
+      );
+      const first = reviewRaw.indexOf("{");
+      const last = reviewRaw.lastIndexOf("}");
+      if (first < 0 || last <= first) throw new Error("Visual relevance check returned invalid JSON");
+      return JSON.parse(reviewRaw.slice(first, last + 1));
+    };
+    let plan = await generatePlan();
+    let review = await validateRelevance(plan);
+    if (review.relevant !== true) {
+      plan = await generatePlan(String(review.reason || "Иллюстрация не раскрывает конкретную тему"));
+      review = await validateRelevance(plan);
+    }
+    if (review.relevant !== true) {
+      throw new Error("Visual concept failed topic relevance check: " + String(review.reason || "unrelated visual").slice(0, 300));
+    }
     plan.concept = String(plan.concept || "").trim();
     plan.rationale = String(plan.rationale || "").trim();
+    plan.relevance_check = "passed";
     return plan;
   }
 
