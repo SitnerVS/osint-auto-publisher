@@ -160,6 +160,88 @@ async function telegram(env, method, data) {
 }
 
 // ======================================================
+// CLOUDFLARE WORKERS AI — IMAGE GENERATION
+// ======================================================
+
+async function generateCloudflareImage(env, prompt) {
+  if (!env.AI || typeof env.AI.run !== "function") {
+    throw new Error("Cloudflare Workers AI binding AI is not configured");
+  }
+
+  const form = new FormData();
+  form.append("prompt", prompt);
+  form.append("width", "1024");
+  form.append("height", "1280");
+
+  // FLUX.2 Klein 4B expects multipart/form-data, including prompt-only calls.
+  const serialized = new Response(form);
+  const body = serialized.body;
+  const contentType = serialized.headers.get("content-type");
+
+  const result = await env.AI.run(
+    "@cf/black-forest-labs/flux-2-klein-4b",
+    {
+      multipart: {
+        body,
+        contentType
+      }
+    }
+  );
+
+  if (!result || typeof result.image !== "string" || !result.image) {
+    throw new Error("Cloudflare AI returned no image data");
+  }
+
+  const binary = atob(result.image);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  return bytes;
+}
+
+async function telegramSendPhoto(env, chatId, imageBytes, caption) {
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    throw new Error("TELEGRAM_BOT_TOKEN is not configured");
+  }
+
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  form.append("caption", caption);
+  form.append(
+    "photo",
+    new Blob([imageBytes], { type: "image/png" }),
+    "osint-image-test.png"
+  );
+
+  const response = await fetch(
+    \`https://api.telegram.org/bot\${env.TELEGRAM_BOT_TOKEN}/sendPhoto\`,
+    {
+      method: "POST",
+      body: form
+    }
+  );
+
+  let result;
+
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error(\`Telegram sendPhoto returned invalid JSON: \${response.status}\`);
+  }
+
+  if (!response.ok || !result.ok) {
+    throw new Error(
+      \`Telegram sendPhoto failed: \${result.description || response.status}\`
+    );
+  }
+
+  return result;
+}
+
+// ======================================================
 // GEMINI AI
 // ======================================================
 
@@ -421,6 +503,7 @@ export default {
               "/test — тест согласования\n" +
               "/generate — генерация новой темы\n" +
               "/ai_test — проверка Gemini\n" +
+              "/image_test — тест генерации изображения\n" +
               "/settings — просмотр настроек\n" +
               "/id — проверка Telegram ID"
           });
@@ -477,6 +560,49 @@ export default {
           });
         }
 
+        else if (command === "/image_test") {
+          console.log("CLOUDFLARE IMAGE TEST STARTED");
+
+          await telegram(env, "sendMessage", {
+            chat_id: chatId,
+            text: "Запускаю тест генерации изображения FLUX.2 Klein 4B. Это может занять некоторое время..."
+          });
+
+          try {
+            const prompt =
+              "Premium investigative documentary photography for a serious OSINT and corporate anti-fraud editorial publication. " +
+              "A realistic, carefully composed dark corporate office desk with authentic printed financial audit documents, " +
+              "a closed dark laptop and a restrained orange evidence marker. Cold dark navy and blue-gray photographic atmosphere, " +
+              "dramatic but natural documentary lighting, subtle film grain, realistic materials, sophisticated forensic journalism, " +
+              "high-end editorial photography. Vertical portrait composition, 4:5 aspect ratio. " +
+              "No readable text, no letters, no numbers, no logos, no watermark, no people, no cyberpunk, no neon, " +
+              "no holograms, no dashboards, no HUD, no security camera interface, no hacker clichés, no visual clutter.";
+
+            const imageBytes = await generateCloudflareImage(env, prompt);
+
+            await telegramSendPhoto(
+              env,
+              chatId,
+              imageBytes,
+              "ТЕСТ ГЕНЕРАЦИИ ИЗОБРАЖЕНИЙ\nМодель: FLUX.2 Klein 4B\nФормат: 1024 × 1280 (4:5)\nСреда: Cloudflare Workers Free"
+            );
+
+            console.log("CLOUDFLARE IMAGE TEST COMPLETED", {
+              bytes: imageBytes.byteLength
+            });
+
+          } catch (error) {
+            console.error("CLOUDFLARE IMAGE TEST FAILED:", error.message);
+
+            await telegram(env, "sendMessage", {
+              chat_id: chatId,
+              text:
+                "Не удалось сгенерировать тестовое изображение.\n\n" +
+                \`Причина: \${String(error.message || error).slice(0, 1200)}\`
+            });
+          }
+        }
+
         else if (command === "/ai_test") {
           console.log("GEMINI TEST STARTED");
 
@@ -524,6 +650,7 @@ export default {
               "/generate\n" +
               "/settings\n" +
               "/ai_test\n" +
+              "/image_test\n" +
               "/id"
           });
         }
