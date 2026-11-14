@@ -83,7 +83,7 @@ async function geminiGenerate(env, prompt) {
   console.log("Gemini request started");
 
   const response = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/ggemini-3.5-flash-lite:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
     {
       method: "POST",
       headers: {
