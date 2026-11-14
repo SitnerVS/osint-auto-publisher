@@ -119,11 +119,15 @@ export async function runHourlyTrend(coordinator, payload, deps) {
 
   if (!threadsToken?.access_token || !threadsToken?.user_id || Number(threadsToken.expires_at || 0) <= now) {
     await storage.put(slotKey, { status: "skipped", reason: "threads_not_connected", created_at: new Date().toISOString() });
-    await deps.telegram(env, "sendMessage", {
-      chat_id: env.TELEGRAM_CHAT_ID,
-      text: "Ежечасная рубрика пропущена: аккаунт Threads не подключён или токен истёк."
-    });
-    return { ok: false, skipped: true, reason: "threads_not_connected" };
+    const noticeKey = "social:hourly:threads_notice:" + new Date(now).toISOString().slice(0, 10);
+    if (!(await storage.get(noticeKey))) {
+      await storage.put(noticeKey, true);
+      await deps.telegram(env, "sendMessage", {
+        chat_id: env.TELEGRAM_CHAT_ID,
+        text: "Ежечасная рубрика приостановлена: аккаунт Threads не подключён или токен истёк."
+      });
+    }
+    return { ok: true, skipped: true, reason: "threads_not_connected" };
   }
 
   if (!instagramToken?.access_token || !instagramToken?.user_id || Number(instagramToken.expires_at || 0) <= now) {
@@ -136,7 +140,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
         text: "Ежечасная рубрика пока не публикуется: Instagram ещё не подключён. Открой /instagram/connect после настройки Instagram API в Meta. До подключения обеих площадок автоматическая публикация не запускается."
       });
     }
-    return { ok: false, skipped: true, reason: "instagram_not_connected" };
+    return { ok: true, skipped: true, reason: "instagram_not_connected" };
   }
 
   if (!env.EDITORIAL_DATA || typeof env.EDITORIAL_DATA.put !== "function") {
@@ -333,7 +337,8 @@ export async function runHourlyTrend(coordinator, payload, deps) {
     });
 
     return {
-      ok: Boolean(threadsResult && instagramResult),
+      ok: true,
+      partial: !(threadsResult && instagramResult),
       threads: threadsResult,
       instagram: instagramResult,
       text
@@ -349,6 +354,6 @@ export async function runHourlyTrend(coordinator, payload, deps) {
       chat_id: env.TELEGRAM_CHAT_ID,
       text: "Ежечасная рубрика не выполнена.\nПричина: " + String(error.message || error).slice(0, 700)
     });
-    return { ok: false, error: String(error.message || error) };
+    return { ok: true, failed: true, error: String(error.message || error) };
   }
 }
