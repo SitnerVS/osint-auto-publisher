@@ -1,4 +1,3 @@
-
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "osint-telegram-gateway-staging",
@@ -30,5 +29,10 @@
       "type": "durable-object",
       "storage": "sqlite"
     }
+  },
+  "triggers": {
+    "crons": [
+      "0 * * * *"
+    ]
   }
 }
