@@ -1113,7 +1113,7 @@ export class ApprovalCoordinator {
         } else {
           const itemId = String(payload.item_id || "");
           const item = await this.ctx.storage.get("item:" + itemId);
-          if (!item || item.status !== "publication_approved" || !["created", "failed"].includes(item.threads_publication_status)) {
+          if (!item || item.status !== "publication_approved" || !["created", "failed", "paused", undefined].includes(item.threads_publication_status)) {
             result = { ok: false, error: "No safely retryable Threads publication exists for this item" };
           } else {
             result = await this.publishApprovedThreadsPost(itemId);
@@ -2272,6 +2272,21 @@ export class ApprovalCoordinator {
 
   async publishApprovedThreadsPost(itemId) {
     const itemKey = `item:${itemId}`;
+    if (String(this.env.THREADS_PUBLISHING_ENABLED || "false").toLowerCase() !== "true") {
+      const pausedItem = await this.ctx.storage.get(itemKey);
+      if (pausedItem && pausedItem.status === "publication_approved") {
+        await this.ctx.storage.put(itemKey, {
+          ...pausedItem,
+          threads_publication_status: "paused",
+          threads_publication_error: "Publishing is paused until visual QA is approved"
+        });
+      }
+      await telegram(this.env, "sendMessage", {
+        chat_id: this.env.TELEGRAM_CHAT_ID,
+        text: "Публикация в Threads временно заблокирована до успешного прохождения визуального контроля OSINTNER. Материал сохранён, ничего не опубликовано: " + itemId
+      });
+      return { ok: false, paused: true };
+    }
     const reservation = await this.ctx.storage.transaction(async txn => {
       const item = await txn.get(itemKey);
       if (!item || item.status !== "publication_approved") return { skipped: true };
