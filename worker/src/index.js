@@ -243,6 +243,80 @@ async function telegramSendPhoto(env, chatId, imageBytes, caption) {
 }
 
 // ======================================================
+
+async function telegramSendMediaGroup(env, chatId, images, caption) {
+  if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
+  if (!Array.isArray(images) || images.length < 2 || images.length > 10) throw new Error("Telegram media group must contain between 2 and 10 images");
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  const media = images.map((image, index) => {
+    const attachment = "photo" + index;
+    form.append(attachment, new Blob([image.bytes], { type: "image/png" }), "osint-slide-" + (index + 1) + ".png");
+    return { type: "photo", media: "attach://" + attachment, ...(index === 0 && caption ? { caption: String(caption).slice(0, 900) } : {}) };
+  });
+  form.append("media", JSON.stringify(media));
+  const response = await fetch("https://api.telegram.org/bot" + env.TELEGRAM_BOT_TOKEN + "/sendMediaGroup", { method: "POST", body: form });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.ok) throw new Error("Telegram sendMediaGroup failed: " + String(result.description || response.status));
+  return result;
+}
+
+async function telegramSendVisualPreview(env, chatId, images, caption) {
+  if (!Array.isArray(images) || images.length === 0) throw new Error("Visual preview has no images");
+  if (images.length === 1) return telegramSendPhoto(env, chatId, images[0].bytes, String(caption || "").slice(0, 900));
+  return telegramSendMediaGroup(env, chatId, images, caption);
+}
+
+function parseVisualPlan(raw) {
+  const source = String(raw || "").trim().replace(/^\`\`\`(?:json)?\s*/i, "").replace(/\s*\`\`\`$/, "");
+  const start = source.indexOf("{"), end = source.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("Visual plan is not valid JSON");
+  const plan = JSON.parse(source.slice(start, end + 1));
+  if (!plan || typeof plan !== "object" || Array.isArray(plan) || !["single", "carousel"].includes(plan.format) || !Array.isArray(plan.slides)) throw new Error("Visual plan has an invalid structure");
+  const validCount = plan.format === "single" ? plan.slides.length === 1 : plan.slides.length >= 3 && plan.slides.length <= 5;
+  if (!validCount) throw new Error("Visual plan has an invalid number of slides");
+  for (const slide of plan.slides) if (!slide || typeof slide.prompt !== "string" || slide.prompt.trim().length < 40) throw new Error("Visual plan contains an incomplete image prompt");
+  return plan;
+}
+
+function formatVisualPlan(plan) {
+  return [
+    "ФОРМАТ: " + (plan.format === "carousel" ? "КАРУСЕЛЬ" : "ОДИНОЧНЫЙ ПОСТ"),
+    "КОНЦЕПЦИЯ: " + String(plan.concept || "").trim(),
+    "ОБОСНОВАНИЕ: " + String(plan.rationale || "").trim(),
+    "ОБЩИЕ ПАРАМЕТРЫ: вертикальный формат 4:5; холодная тёмная navy/blue-gray документальная фотография; белая русская типографика; оранжевый акцент #F26A1B; без логотипов и водяных знаков",
+    "СЛАЙДЫ:",
+    ...plan.slides.map((slide, index) => (index + 1) + ". " + String(slide.title || ("Слайд " + (index + 1))).trim() + (slide.subtitle ? " — " + String(slide.subtitle).trim() : ""))
+  ].join("\n");
+}
+
+async function generateAndStoreVisualAssets(env, itemId, plan) {
+  if (!env.EDITORIAL_DATA) throw new Error("EDITORIAL_DATA KV binding is not configured");
+  const baseUrl = "https://osint-telegram-gateway-staging.vssitner.workers.dev";
+  const assets = [];
+  for (let index = 0; index < plan.slides.length; index++) {
+    const slide = plan.slides[index];
+    const prompt = [
+      String(slide.prompt).trim(),
+      "Строго вертикальный формат 4:5, 1024x1280 пикселей.",
+      "Премиальная investigative editorial фотография, холодная тёмная navy и blue-gray палитра, документальный реализм, сдержанный драматичный свет.",
+      "Оставь чистое пространство слева под редакционный заголовок. Не генерируй буквы, цифры, читаемый текст, логотипы, водяные знаки или подписи.",
+      "Без киберпанка, неона, хакеров в капюшонах, матричного дождя, sci-fi HUD, мультяшности, пластиковой CGI-эстетики и generic stock photography."
+    ].join("\n");
+    const bytes = await generateCloudflareImage(env, prompt);
+    const id = crypto.randomUUID().replace(/-/g, "");
+    await env.EDITORIAL_DATA.put("social-image:" + id, bytes, { expirationTtl: 60 * 60 * 24 * 90 });
+    assets.push({
+      id, url: baseUrl + "/media/" + id,
+      title: String(slide.title || ("Слайд " + (index + 1))).slice(0, 180),
+      subtitle: String(slide.subtitle || "").slice(0, 250),
+      alt_text: String(slide.alt_text || slide.title || "Редакционная иллюстрация OSINTNER").slice(0, 1000),
+      item_id: itemId, slide: index + 1
+    });
+  }
+  return assets;
+}
+
 // GEMINI AI
 // ======================================================
 
@@ -1434,61 +1508,26 @@ export class ApprovalCoordinator {
 
   async generateVisualBrief(item, rejectedVersions = item.rejected_visuals || []) {
     const styleInstructions = this.getVisualStyleInstructions();
-    const rejectedVisualBlock = rejectedVersions.length ? `\n\nОТКЛОНЁННЫЕ КОНЦЕПЦИИ — НЕ ПОВТОРЯТЬ СЮЖЕТ И КОМПОЗИЦИЮ:\n${rejectedVersions.slice(-3).map((value, index) => `${index + 1}. ${String(value).slice(0, 900)}`).join("\n\n")}\n` : "";
-
+    const rejectedVisualBlock = rejectedVersions.length
+      ? "\nОТКЛОНЁННЫЕ КОНЦЕПЦИИ — НЕ ПОВТОРЯТЬ: " + rejectedVersions.slice(-3).map(value => String(value).slice(0, 900)).join("\n")
+      : "";
     const prompt =
-      `Ты арт-директор премиального расследовательского медиа OSINT Editorial.\n\n` +
-      `Твоя задача — подготовить готовое техническое задание и промпты для генерации изображений публикации.\n\n` +
-      `ТЕМА: ${item.title}\n` +
-      `КАТЕГОРИЯ: ${item.category}\n\n` +
-      `ТЕКСТ ПУБЛИКАЦИИ:\n${item.text_content || item.content}\n\n` +
-      `${styleInstructions}\n\n` +
-      `РЕДАКЦИОННЫЕ ПРАВИЛА:\n` +
-      `1. Визуал точно соответствует утверждённой теме и статье, не усиливает выводы и не изображает гипотезы как доказанные факты.\n` +
-      `2. Используй одну ясную визуальную метафору или документальную сцену без нагромождения несвязанных объектов.\n` +
-      `3. Не выдумывай названия организаций, интерфейсы реальных систем, документы с читаемыми реквизитами, цифры, карты с фиктивными данными или доказательства.\n` +
-      `4. Заголовок и подзаголовок на изображении короткие, грамотные и точно отражают содержание статьи.\n` +
-      `5. Если статья описывает вероятностные признаки, визуал не должен создавать впечатление установленного нарушения или виновности.\n` +
-      `6. При повторной генерации создай заметно иную композицию и визуальный подход, сохранив утверждённую визуальную идентичность.\n\n` +
-      `ПРАВИЛА ФОРМАТА:\n` +
-      `1. Самостоятельно выбери один формат: ОДИНОЧНЫЙ ПОСТ или КАРУСЕЛЬ.\n` +
-      `2. Выбирай карусель только тогда, когда тема действительно требует последовательного раскрытия нескольких самостоятельных смысловых частей.\n` +
-      `3. Для одиночного поста используй формат 4:5 и создай один полноценный промпт.\n` +
-      `4. Для карусели создай от 3 до 5 слайдов. Каждый слайд — отдельное изображение 4:5 и отдельный промпт.\n` +
-      `5. Все изображения должны быть выполнены в единой визуальной системе, но не должны быть одинаковыми или повторять одну композицию.\n` +
-      `6. Не добавляй вымышленные факты, цифры, документы, логотипы или названия организаций.\n` +
-      `7. Текст на изображении должен быть коротким, грамотным, читаемым и на русском языке.\n` +
-      `8. Не используй хештеги.\n` +
-      `9. Не добавляй OSINTNER, логотип, водяной знак, название бренда или подпись.\n` +
-      `10. Каждый промпт должен быть самостоятельным и пригодным для передачи в генератор изображений без дополнительного контекста.\n\n` +
-      `СТРУКТУРА ОТВЕТА:\n\n` +
-      `ФОРМАТ: [ОДИНОЧНЫЙ ПОСТ или КАРУСЕЛЬ]\n\n` +
-      `КОНЦЕПЦИЯ: [краткое описание общей визуальной идеи]\n\n` +
-      `ОБОСНОВАНИЕ: [почему выбран этот формат]\n\n` +
-      `ОБЩИЕ ПАРАМЕТРЫ: [соотношение сторон, палитра, атмосфера, типографика]\n\n` +
-      `ТЕКСТ НА ИЗОБРАЖЕНИИ: [точный заголовок и короткий подзаголовок]\n\n` +
-      `ПРОМПТ ДЛЯ ГЕНЕРАЦИИ:\n` +
-      `Для одиночного поста — один полный промпт.\n` +
-      `Для карусели — отдельный промпт для каждого слайда с номером, заголовком, содержанием и визуальной композицией.\n\n` +
-      `${rejectedVisualBlock}\n` +
-      `Перед ответом проверь соответствие статьи, точность текста на изображении, отсутствие вымышленных фактов и отличие от отклонённых концепций.\n` +
-      `Верни только готовое техническое задание. Не добавляй вступлений и заключений.`;
-
-    const result = await geminiGenerate(
-      this.env,
-      prompt,
-      {
-        task: "visual_brief",
-        temperature: 0.7,
-        maxOutputTokens: 2500
-      }
-    );
-
-    if (!result || result.trim().length < 200) {
-      throw new Error("Generated visual brief is too short");
-    }
-
-    return result.trim();
+      "Ты арт-директор премиального расследовательского медиа OSINT Editorial. Подготовь план реальной генерации изображений.\n" +
+      "ТЕМА: " + item.title + "\nКАТЕГОРИЯ: " + item.category + "\nТЕКСТ: " + (item.text_content || item.content) + "\n\n" +
+      styleInstructions + "\n\n" +
+      "Выбери single для одной обложки или carousel для последовательного раскрытия темы. Для single ровно один слайд; для carousel от 3 до 5 слайдов. " +
+      "Каждый слайд должен иметь короткий русский заголовок, подзаголовок, самостоятельный подробный prompt и alt_text. " +
+      "Каждый prompt описывает конкретную документальную сцену по статье, вертикальную композицию 4:5 и чистое пространство слева под редакционную типографику. " +
+      "Не проси рисовать буквы или длинный текст. Не выдумывай документы, цифры, реальные логотипы, интерфейсы, компании, доказательства или виновность. " +
+      "Не превращай косвенные признаки в доказанный факт. Сохраняй холодную тёмную navy/blue-gray палитру, белую типографику и акцент #F26A1B. " +
+      "Запрещены OSINTNER, логотипы, водяные знаки, хакеры в капюшонах, матричный дождь, киберпанк и неон." +
+      rejectedVisualBlock + "\n\n" +
+      'Верни только JSON без markdown: {"format":"single|carousel","concept":"...","rationale":"...","slides":[{"title":"...","subtitle":"...","prompt":"...","alt_text":"..."}]}.';
+    const raw = await geminiGenerate(this.env, prompt, { task: "visual_brief", temperature: 0.7, maxOutputTokens: 3000 });
+    const plan = parseVisualPlan(raw);
+    plan.concept = String(plan.concept || "").trim();
+    plan.rationale = String(plan.rationale || "").trim();
+    return plan;
   }
 
   // ==================================================
@@ -1577,19 +1616,22 @@ export class ApprovalCoordinator {
   // ==================================================
 
   async generateAlternativeVisual(itemId) {
-    const itemKey = `item:${itemId}`;
+    const itemKey = \`item:\${itemId}\`;
     const item = await this.ctx.storage.get(itemKey);
     if (!item || item.status !== "generating_alternative_visual") return { ok: false, skipped: true };
-
     try {
-      const rejected = Array.isArray(item.rejected_visuals) ? item.rejected_visuals : [];
-      const generatedVisual = await this.generateVisualBrief(item, rejected);
-      await this.ctx.storage.transaction(async (txn) => {
+      const plan = await this.generateVisualBrief(item, Array.isArray(item.rejected_visuals) ? item.rejected_visuals : []);
+      const assets = await generateAndStoreVisualAssets(this.env, itemId, plan);
+      const images = await Promise.all(assets.map(async asset => ({ ...asset, bytes: await this.env.EDITORIAL_DATA.get("social-image:" + asset.id, "arrayBuffer") })));
+      await telegramSendVisualPreview(this.env, this.env.TELEGRAM_CHAT_ID, images, "ПРЕДПРОСМОТР НОВОГО ВИЗУАЛА\n" + String(plan.concept || "").slice(0, 700));
+      await this.ctx.storage.transaction(async txn => {
         const current = await txn.get(itemKey);
         if (!current || current.status !== "generating_alternative_visual") return;
         const timestamp = new Date().toISOString();
-        current.visual_content = generatedVisual;
-        current.content = generatedVisual;
+        current.visual_content = formatVisualPlan(plan);
+        current.visual_plan = plan;
+        current.visual_assets = assets;
+        current.content = current.visual_content;
         current.stage = "visual";
         current.status = "pending";
         current.approval_id = crypto.randomUUID();
@@ -1678,63 +1720,36 @@ export class ApprovalCoordinator {
   // ==================================================
 
   async runVisualGeneration(itemId) {
-    const itemKey = `item:${itemId}`;
-
+    const itemKey = \`item:\${itemId}\`;
     try {
       const sourceItem = await this.ctx.storage.get(itemKey);
-
-      if (!sourceItem) {
-        throw new Error("Material not found");
-      }
-
+      if (!sourceItem) throw new Error("Material not found");
       console.log("AI VISUAL GENERATION STARTED:", itemId);
-
-      const generatedVisual = await this.generateVisualBrief(sourceItem, Array.isArray(sourceItem.rejected_visuals) ? sourceItem.rejected_visuals : []);
-
-      await this.ctx.storage.transaction(async (txn) => {
+      const plan = await this.generateVisualBrief(sourceItem, Array.isArray(sourceItem.rejected_visuals) ? sourceItem.rejected_visuals : []);
+      const assets = await generateAndStoreVisualAssets(this.env, itemId, plan);
+      const images = await Promise.all(assets.map(async asset => ({ ...asset, bytes: await this.env.EDITORIAL_DATA.get("social-image:" + asset.id, "arrayBuffer") })));
+      await telegramSendVisualPreview(this.env, this.env.TELEGRAM_CHAT_ID, images, "ПРЕДПРОСМОТР ВИЗУАЛА\n" + String(plan.concept || "").slice(0, 700));
+      await this.ctx.storage.transaction(async txn => {
         const item = await txn.get(itemKey);
-
-        if (!item || item.status !== "generating_visual") {
-          return;
-        }
-
+        if (!item || item.status !== "generating_visual") return;
         const timestamp = new Date().toISOString();
-
-        item.visual_content = generatedVisual;
-        item.content = generatedVisual;
+        item.visual_content = formatVisualPlan(plan);
+        item.visual_plan = plan;
+        item.visual_assets = assets;
+        item.content = item.visual_content;
         item.stage = "visual";
         item.status = "pending";
         item.approval_id = crypto.randomUUID();
         item.updated_at = timestamp;
         item.visual_generated_at = timestamp;
-
         await txn.put(itemKey, item);
-
-        await this.addEvent(txn, {
-          item_id: item.id,
-          stage: "visual",
-          action: "ai_visual_generated",
-          category: item.category
-        });
-
-        await this.enqueue(
-          txn,
-          "sendMessage",
-          approvalMessage(item, this.env.TELEGRAM_CHAT_ID)
-        );
+        await this.addEvent(txn, { item_id: item.id, stage: "visual", action: "ai_visual_generated", category: item.category });
+        await this.enqueue(txn, "sendMessage", approvalMessage(item, this.env.TELEGRAM_CHAT_ID));
       });
-
       console.log("AI VISUAL GENERATION COMPLETED:", itemId);
-
     } catch (error) {
       console.error("AI VISUAL GENERATION FAILED:", error.message);
-
-      await this.markGenerationFailed(
-        itemId,
-        "generating_visual",
-        "visual",
-        error
-      );
+      await this.markGenerationFailed(itemId, "generating_visual", "visual", error);
     }
   }
 
