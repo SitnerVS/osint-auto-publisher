@@ -369,7 +369,22 @@ export default {
               `Coordinator: ${env.APPROVAL_COORDINATOR ? "configured" : "missing"}`
           });
         }
+        // /SETTINGS
 
+        else if (command === "/settings") {
+          await telegram(env, "sendMessage", {
+            chat_id: chatId,
+            text:
+              "OSINT EDITORIAL SETTINGS\n\n" +
+              `Account: ${SETTINGS.account}\n` +
+              `Timezone: ${SETTINGS.timezone}\n` +
+              `Feed posts per day: ${SETTINGS.publishing.feed_posts_per_day}\n` +
+              `Feed schedule: ${SETTINGS.publishing.feed_schedule.join(", ")}\n` +
+              `Reels per day: ${SETTINGS.publishing.reels_per_day}\n` +
+              `Topic rotation: ${SETTINGS.content_strategy.topic_rotation.join(" → ")}\n` +
+              `Hashtags: ${SETTINGS.content_strategy.hashtags ? "enabled" : "disabled"}`
+          });
+        }
         // /TEST
 
         else if (command === "/test") {
