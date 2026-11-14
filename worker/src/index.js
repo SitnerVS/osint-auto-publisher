@@ -13,7 +13,7 @@ const STAGE_NAMES = {
 };
 
 const OUTBOX_RETRY_MS = 30_000;
-const TELEGRAM_SAFE_LIMIT = 3500;
+const TELEGRAM_SAFE_LIMIT = 4000;
 
 // ======================================================
 // COMMON HELPERS
@@ -893,7 +893,7 @@ export class ApprovalCoordinator {
       `ВЫВОД\n` +
       `ИСТОЧНИКИ ДЛЯ ПРОВЕРКИ\n\n` +
       `В последнем разделе укажи названия подходящих первичных источников и официальных ресурсов. Не придумывай URL и не утверждай, что источники уже проверены.\n\n` +
-      `Подготовь содержательный материал объёмом примерно 2500–3500 знаков. Верни только текст публикации.`;
+      `Подготовь содержательный материал объёмом примерно 2500–3000 знаков. Верни только текст публикации.`;
 
     const result = await geminiGenerate(
       this.env,
@@ -901,10 +901,23 @@ export class ApprovalCoordinator {
     );
 
     if (!result || result.trim().length < 300) {
-      throw new Error("Generated publication text is too short");
-    }
+  throw new Error("Generated publication text is too short");
+}
 
-    return result.trim();
+if (Array.from(result).length > 3700) {
+  const shortened = await geminiGenerate(
+    this.env,
+    `Сократи следующий материал до 3000 символов максимум, сохранив его структуру, основные выводы, практический пример и источники для проверки. Не добавляй новых фактов. Верни только сокращённый текст:\n\n${result}`
+  );
+
+  if (Array.from(shortened).length > 3700) {
+    throw new Error("Generated text exceeds Telegram single-message limit");
+  }
+
+  return shortened.trim();
+}
+
+return result.trim();
   }
 
   // ==================================================
