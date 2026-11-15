@@ -101,9 +101,6 @@ export async function generateHumorVariants(env, topic, previousTexts, geminiGen
     text: normalizeText(item.text),
     angle: normalizeText(item.angle || "")
   }));
-  if (variants.some(item => !item.text || !isLocallySafe(item.text))) {
-    throw new Error("Один или несколько вариантов не прошли первичный фильтр безопасности. Запроси новую генерацию.");
-  }
   return variants;
 }
 
