@@ -1131,9 +1131,9 @@ export class ApprovalCoordinator {
             const appSecret = String(payload.app_secret || this.env.THREADS_APP_SECRET || "");
             if (appId && appSecret) {
               try {
-                const debugUrl = new URL("https://graph.facebook.com/debug_token");
+                const debugUrl = new URL("https://graph.threads.net/v1.0/debug_token");
                 debugUrl.searchParams.set("input_token", token.access_token);
-                debugUrl.searchParams.set("access_token", appId + "|" + appSecret);
+                debugUrl.searchParams.set("access_token", "TH|" + appId + "|" + appSecret);
                 const debugResponse = await fetch(debugUrl.toString());
                 const debugData = await debugResponse.json().catch(() => ({}));
                 if (debugResponse.ok && debugData.data) {
