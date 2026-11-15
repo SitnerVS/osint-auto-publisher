@@ -119,7 +119,8 @@ export async function runHourlyTrend(coordinator, payload, deps) {
   const storage = coordinator.ctx.storage;
   const env = coordinator.env;
   const preview = payload?.preview === true;
-  const forceManual = payload?.force_manual === true;
+  const bootstrapPending = payload?.bootstrap === true && (await storage.get("social:hourly:bootstrap_published")) !== true;
+  const forceManual = payload?.force_manual === true || bootstrapPending;
 
   if (!preview && String(env.THREADS_PUBLISHING_ENABLED || "false").toLowerCase() !== "true") {
     return { ok: true, skipped: true, reason: "threads_publishing_disabled" };
@@ -243,6 +244,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
       "По переданным трендам Threads создай ОДНУ остроумную, лёгкую и доброжелательную публикацию. " +
       "Не переводи тренд дословно: переосмысли его на русский лад, с естественной разговорной интонацией, узнаваемой бытовой ситуацией, мягкой иронией или неожиданным вопросом. " +
       "Результат должен быть смешным сам по себе, понятным русскоязычной аудитории и не выглядеть как рекламный текст. " +
+      "Не используй шаблонные вопросы вроде «интересно, а…» и нейтральные наблюдения без панчлайна. Нужен конкретный комический поворот: неожиданная развязка, точная бытовая деталь, самоирония или абсурдная аналогия. Шутка должна вызывать улыбку без пояснений. " +
       "Ориентир по духу редакции — наблюдательность, цифровые привычки, технологии, работа, интернет, повседневные парадоксы; используй историю серьёзных тем лишь как ориентир на умный аналитический взгляд, не шути о преступлениях или пострадавших. " +
       "Только одна фраза и одно предложение, желательно вопрос или короткое наблюдение; 25–180 символов. " +
       "ВАЖНО О ДОСТОВЕРНОСТИ: название тренда само по себе не подтверждает реальное событие, рост частоты или распространённость явления. Не утверждай, что что-то происходит «всё чаще», уже случилось или является фактом, если это прямо не подтверждено описанием тренда. Если надёжного контекста нет, строй шутку как гипотезу, воображаемую ситуацию, сравнение или игру слов; не добавляй вымышленные факты. " +
@@ -342,6 +344,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
       latestHistory.push(record);
       await storage.put("social:hourly:history", latestHistory.slice(-100));
       await storage.put("social:hourly:last_published_at", Date.parse(eventAt));
+      if (bootstrapPending) await storage.put("social:hourly:bootstrap_published", true);
     }
     await storage.put(slotKey, {
       status: threadsResult ? "published" : "failed",
