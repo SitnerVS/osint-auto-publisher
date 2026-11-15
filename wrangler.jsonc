@@ -6,6 +6,7 @@
   "workers_dev": true,
   "vars": {
     "TELEGRAM_CHAT_ID": "1664476273",
+    "THREADS_APP_ID": "4739209539736882",
     "THREADS_PUBLISHING_ENABLED": "true"
   },
   "durable_objects": {
