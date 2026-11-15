@@ -581,7 +581,7 @@ export default {
                 chat_id: chatId,
                 text: "ПРЕДПРОСМОТР ЕЖЕЧАСНОЙ РУБРИКИ\n\nТренд: " + result.trend + "\n\n" + result.text + "\n\nПроверки пройдены. Публикации не было."
               });
-            } else {
+            } else if (!result.skipped && !result.failed) {
               await telegram(env, "sendMessage", {
                 chat_id: chatId,
                 text: "Предпросмотр завершился без готового текста.\nПричина: " +
