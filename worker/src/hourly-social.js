@@ -316,30 +316,29 @@ const generationPrompt = [
       "ТЕМА РУБРИКИ: «Интересные и малоизвестные факты». Тематика не ограничена: наука, природа, история, космос, технологии, география, культура, язык, медицина, животные, повседневные явления, архитектура, экономика и другие области.",
       "Выбери пять фактов из пяти разных областей. Они должны удивлять содержанием, а не громкими формулировками. Избегай общеизвестных школьных фактов, мифов, городских легенд, спорных гипотез и сенсаций.",
       "Каждый факт — только одно сухое утвердительное предложение на русском языке, максимум 12 слов. Никаких вопросов, шуток, оценок, вступлений, пояснений и эмоциональных слов.",
-      "Достоверность важнее количества. Используй Google Search grounding. Каждый факт должен независимо подтверждаться минимум двумя реальными источниками из результатов поиска: научной публикацией, университетом, государственным учреждением, музеем, научным журналом или авторитетной энциклопедией.",
+      "Достоверность важнее количества. Используй встроенный браузерный поиск Groq (browser_search). Каждый факт должен независимо подтверждаться минимум двумя реальными источниками из результатов поиска: научной публикацией, университетом, государственным учреждением, музеем, научным журналом или авторитетной энциклопедией.",
       "Не используй Википедию, форумы, блоги без редакционной проверки, агрегаторы, рекламные сайты и публикации без первоисточника. Не делай выводов, которых прямо не подтверждает источник.",
       "Не придумывай цифры, даты, имена, причинно-следственные связи и детали. Не превращай приблизительные значения в точные. Если достоверность или формулировка вызывают сомнение — исключи факт.",
-      "Для каждого факта верни source_urls — минимум два точных URL независимых источников, реально использованных при поиске. Не выдумывай адреса и не подставляй главные страницы вместо конкретных материалов.",
+      "Для каждого факта верни source_urls — минимум два точных URL независимых источников, реально найденных браузерным поиском Groq. Не выдумывай адреса и не подставляй главные страницы вместо конкретных материалов.",
       "Не повторяй недавние публикации: " + JSON.stringify(recentFunnyHistory) + ".",
       "Верни только корректный JSON: {\"variants\":[{\"text\":\"Факт не более двенадцати слов\",\"source_urls\":[\"https://точный-источник\"]}]}. Ровно пять объектов.",
       "Никаких хештегов, упоминаний, эмодзи, ссылок внутри самого факта и латинских слов. Ссылки передавай только в source_urls.",
       "Не заполняй подборку сомнительными утверждениями ради количества. Если не удалось найти пять подтверждённых фактов, сообщи об этом вместо выдумывания."
     ].join("\\n");
     let rawResponse = "";
-    let groundingMetadata = null;
+    let groundedSources = [];
     if (preview) {
-      if (typeof deps.geminiGenerate !== "function") throw new Error("Не подключён генератор фактов с поисковой проверкой.");
-      const grounded = await deps.geminiGenerate(env, generationPrompt, {
+      if (typeof deps.groqGenerate !== "function") throw new Error("Не подключён Groq с браузерным поиском для проверки фактов.");
+      const grounded = await deps.groqGenerate(env, generationPrompt, {
         task: "hourly_verified_facts_generation",
         maxAttempts: 2,
         temperature: 0.2,
         maxOutputTokens: 3000,
-        responseMimeType: "application/json",
-        googleSearch: true,
+        browserSearch: true,
         returnMetadata: true
       });
       rawResponse = String(grounded?.text || "").trim();
-      groundingMetadata = grounded?.groundingMetadata || null;
+      groundedSources = Array.isArray(grounded?.sources) ? grounded.sources : [];
     } else {
       const generatedRaw = await deps.groqGenerate(env, generationPrompt, {
         task: "hourly_fact_generation",
@@ -355,11 +354,11 @@ const generationPrompt = [
         previewData = parsePreviewVariants(rawResponse);
       } catch (firstParseError) {
         console.warn("Hourly preview returned invalid variants JSON; requesting strict JSON retry:", rawResponse.slice(0, 1200));
-        const strictRetry = await deps.geminiGenerate(env,
-          generationPrompt + "\\n\\nКРИТИЧЕСКИ ВАЖНО: верни только валидный JSON без Markdown и пояснений. Для каждого факта укажи source_urls только из реальных результатов Google Search grounding. Не выдумывай факты и ссылки.",
-          { task: "hourly_verified_facts_json_retry", maxAttempts: 2, temperature: 0.1, maxOutputTokens: 3000, responseMimeType: "application/json", googleSearch: true, returnMetadata: true }
+        const strictRetry = await deps.groqGenerate(env,
+          generationPrompt + "\\n\\nКРИТИЧЕСКИ ВАЖНО: верни только валидный JSON без Markdown и пояснений. Для каждого факта укажи source_urls только из реальных результатов browser_search. Не выдумывай факты и ссылки.",
+          { task: "hourly_verified_facts_json_retry", maxAttempts: 2, temperature: 0.1, maxOutputTokens: 3000, browserSearch: true, returnMetadata: true }
         );
-        groundingMetadata = strictRetry?.groundingMetadata || null;
+        groundedSources = Array.isArray(strictRetry?.sources) ? strictRetry.sources : [];
         try {
           previewData = parsePreviewVariants(String(strictRetry?.text || ""));
         } catch (secondParseError) {
@@ -369,8 +368,7 @@ const generationPrompt = [
       }
       const selectedTrend = { id: "FACTS", name: "Интересные и малоизвестные факты" };
       let rawVariants = Array.isArray(previewData.variants) ? previewData.variants : [];
-      let groundedChunks = Array.isArray(groundingMetadata?.groundingChunks) ? groundingMetadata.groundingChunks : [];
-      let groundedSources = groundedChunks.map(chunk => chunk?.web?.uri || chunk?.retrievedContext?.uri || "").filter(Boolean);
+      let groundedSources = groundedSources;
       const trustedSource = url => {
         try {
           const host = new URL(url).hostname.toLowerCase().replace(/^www\./u, "");
@@ -404,7 +402,7 @@ const generationPrompt = [
             try { return new URL(url).hostname.toLowerCase().replace(/^www\./u, ""); } catch (_) { return ""; }
           }).filter(Boolean));
           if (verifiedDomains.size < 2) issues.push("Вариант " + (index + 1) + ": нужны два независимых авторитетных источника из поисковой выдачи.");
-          if (item.source_urls.some(url => !groundedSources.includes(url))) issues.push("Вариант " + (index + 1) + ": ссылка не подтверждена Google Search grounding.");
+          if (item.source_urls.some(url => !groundedSources.includes(url))) issues.push("Вариант " + (index + 1) + ": ссылка не подтверждена браузерным поиском Groq.");
         });
         return issues;
       };
@@ -412,18 +410,15 @@ const generationPrompt = [
       if (issues.length) {
         console.warn("Hourly preview validation failed; requesting one repair pass:", issues);
         const repairPrompt = generationPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ФАКТЧЕК. Подготовь заново ровно пять фактов и укажи только реальные source_urls из Google Search grounding. Исправь ошибки: " + issues.join(" ") + " Не выдумывай ссылки и утверждения.";
-        const repairedRaw = await deps.geminiGenerate(env, repairPrompt, {
+        const repairedRaw = await deps.groqGenerate(env, repairPrompt, {
           task: "hourly_verified_facts_recheck",
           maxAttempts: 2,
           temperature: 0.1,
           maxOutputTokens: 3000,
-          responseMimeType: "application/json",
-          googleSearch: true,
+          browserSearch: true,
           returnMetadata: true
         });
-        groundingMetadata = repairedRaw?.groundingMetadata || null;
-        groundedChunks = Array.isArray(groundingMetadata?.groundingChunks) ? groundingMetadata.groundingChunks : [];
-        groundedSources = groundedChunks.map(chunk => chunk?.web?.uri || chunk?.retrievedContext?.uri || "").filter(Boolean);
+        groundedSources = Array.isArray(repairedRaw?.sources) ? repairedRaw.sources : [];
         try {
           const repairedData = parsePreviewVariants(String(repairedRaw?.text || ""));
           rawVariants = Array.isArray(repairedData.variants) ? repairedData.variants : [];
