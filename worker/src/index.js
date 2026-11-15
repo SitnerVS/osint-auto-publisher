@@ -3055,6 +3055,22 @@ export class ApprovalCoordinator {
   // ==================================================
 
   async alarm() {
+    const entries = await this.ctx.storage.list({ prefix: "social:hourly:preview:" });
+    let nextExpiry = 0;
+    for (const [key, session] of entries.entries()) {
+      if (session?.status !== "awaiting_choice") continue;
+      const expiry = Number(session.expires_at || 0);
+      if (expiry && expiry <= Date.now()) {
+        await this.ctx.storage.put(key, { ...session, status: "expired", expired_at: new Date().toISOString() });
+        await telegram(this.env, "sendMessage", {
+          chat_id: this.env.TELEGRAM_CHAT_ID,
+          text: "Время выбора шутки истекло. Пятёрка автоматически отклонена. Следующая подборка придёт в следующий час."
+        });
+      } else if (expiry && (!nextExpiry || expiry < nextExpiry)) {
+        nextExpiry = expiry;
+      }
+    }
     await this.flushOutbox();
+    if (nextExpiry) await this.ctx.storage.setAlarm(nextExpiry);
   }
 }
