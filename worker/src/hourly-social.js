@@ -371,13 +371,11 @@ const generationPrompt = [
         // Keep Browser Search and two independent sources per fact mandatory.
         const firstResponse = rawResponse;
         const recoveryPrompt = [
-          "Подготовь ровно пять интересных, малоизвестных, но хорошо документированных фактов для русскоязычного Threads.",
-          "Выбери факты из пяти разных областей. Не ищи редкие сенсации: используй темы, по которым легко найти надёжные публикации — особенности животных, космос, географические явления, исторические артефакты, открытия науки или технологии.",
-          "Для каждого факта обязательны два независимых точных URL из результатов Tavily Search. Используй официальные государственные и университетские сайты, научные журналы, музеи и авторитетные энциклопедии. Не используй Википедию, форумы, рекламные сайты и непроверенные блоги.",
-          "Если кандидат не подтверждается двумя источниками, замени его другим. Не требуй исключительной редкости. Не выдумывай факты, детали и ссылки.",
-          "Каждый текст — одно утвердительное предложение на русском языке, не более 12 слов. Без вопросов, ссылок в тексте, хештегов, упоминаний и эмодзи.",
-          "Верни только JSON: {\"variants\":[{\"text\":\"...\",\"source_urls\":[\"URL 1\",\"URL 2\"]}]}. Ровно пять объектов. Никаких пояснений или отказов."
-        ].join("\\n") + "\\n\\nИСТОЧНИКИ:\\n" + sourceEvidence;
+          "Подготовь ровно пять коротких, хорошо документированных фактов для русскоязычного Threads.",
+          "Для каждого факта выбери ровно два источника из каталога ниже. Источники должны прямо подтверждать факт и иметь разные домены.",
+          "Верни только JSON: {\\"variants\\":[{\\"text\\":\\"...\\",\\"source_ids\\":[1,2]}]}. Ровно пять объектов. source_ids — два разных числовых ID из каталога; URL не возвращай.",
+          "Каждый факт — одно утвердительное предложение на русском языке, максимум 12 слов. Не выдумывай факты или ID. Не используй хештеги, ссылки, упоминания и эмодзи."
+        ].join("\\n") + "\\n\\nКАТАЛОГ ИСТОЧНИКОВ TAVILY:\\n" + sourceEvidence;
         const recovered = await deps.geminiGenerate(env, recoveryPrompt, {
           task: "hourly_verified_facts_recovery",
           model: "gemini-3.5-flash-lite",
@@ -419,11 +417,19 @@ const generationPrompt = [
               host === domain || host.endsWith("." + domain));
         } catch (_) { return false; }
       };
-      const mapPreviewVariants = items => items.map((item, index) => ({
-        index,
-        text: normalizeText(typeof item === "string" ? item : item?.text || ""),
-        source_urls: Array.isArray(item?.source_urls) ? item.source_urls.map(normalizeText).filter(Boolean) : []
-      }));
+      const mapPreviewVariants = items => items.map((item, index) => {
+        const sourceIds = Array.isArray(item?.source_ids)
+          ? item.source_ids.map(value => Number(value)).filter(value => Number.isInteger(value) && value > 0)
+          : [];
+        const urlsFromIds = sourceIds.map(id => sourceInventory[id - 1]?.url || "").filter(Boolean);
+        const suppliedUrls = Array.isArray(item?.source_urls) ? item.source_urls.map(normalizeText).filter(Boolean) : [];
+        return {
+          index,
+          text: normalizeText(typeof item === "string" ? item : item?.text || ""),
+          source_ids: sourceIds,
+          source_urls: urlsFromIds.length ? urlsFromIds : suppliedUrls
+        };
+      });
       let variants = mapPreviewVariants(rawVariants);
       const validationIssues = items => {
         const issues = [];
@@ -448,7 +454,7 @@ const generationPrompt = [
       let issues = validationIssues(variants);
       if (issues.length) {
         console.warn("Hourly preview validation failed; requesting one repair pass:", issues);
-        const repairPrompt = groundedPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ФАКТЧЕК. Подготовь заново ровно пять фактов и укажи только реальные source_urls из Google Search Gemini. Исправь ошибки: " + issues.join(" ") + " Не выдумывай ссылки и утверждения.";
+        const repairPrompt = groundedPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ПРОВЕРКУ. Подготовь заново ровно пять фактов. Для каждого укажи ровно два source_ids из каталога, подтверждающих факт и имеющих РАЗНЫЕ домены. Верни только JSON с полями text и source_ids; URL не выдумывай и не возвращай. Ошибки: " + issues.join(" ");
         const repairedRaw = await deps.geminiGenerate(env, repairPrompt, {
           task: "hourly_verified_facts_recheck",
           model: "gemini-3.5-flash-lite",
