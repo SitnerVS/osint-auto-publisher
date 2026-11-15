@@ -62,8 +62,9 @@ async function publishThreads(env, token, text) {
 export async function runHourlyTrend(coordinator, payload, deps) {
   const storage = coordinator.ctx.storage;
   const env = coordinator.env;
+  const preview = payload?.preview === true;
 
-  if (String(env.THREADS_PUBLISHING_ENABLED || "false").toLowerCase() !== "true") {
+  if (!preview && String(env.THREADS_PUBLISHING_ENABLED || "false").toLowerCase() !== "true") {
     return { ok: true, skipped: true, reason: "threads_publishing_disabled" };
   }
 
@@ -71,7 +72,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
   const slot = new Date(scheduledAt).toISOString().slice(0, 13);
   const slotKey = "social:hourly:slot:" + slot;
   const existing = await storage.get(slotKey);
-  if (existing) {
+  if (existing && !preview) {
     const alreadyPublished =
       existing.status === "published" ||
       Boolean(existing.threads_post_id) ||
@@ -100,7 +101,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
   const now = Date.now();
 
   if (!threadsToken?.access_token || !threadsToken?.user_id || Number(threadsToken.expires_at || 0) <= now) {
-    await storage.put(slotKey, { status: "skipped", reason: "threads_not_connected", created_at: new Date().toISOString() });
+    if (!preview) await storage.put(slotKey, { status: "skipped", reason: "threads_not_connected", created_at: new Date().toISOString() });
     const noticeKey = "social:hourly:threads_notice:" + new Date(now).toISOString().slice(0, 10);
     if (!(await storage.get(noticeKey))) {
       await storage.put(noticeKey, true);
@@ -112,7 +113,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
     return { ok: true, skipped: true, reason: "threads_not_connected" };
   }
 
-  await storage.put(slotKey, { status: "started", created_at: new Date().toISOString() });
+  if (!preview) await storage.put(slotKey, { status: "started", created_at: new Date().toISOString() });
 
   try {
     const trendsUrl = new URL("https://graph.threads.com/v1.0/trending_topics");
@@ -242,6 +243,14 @@ export async function runHourlyTrend(coordinator, payload, deps) {
     }
 
 
+    if (preview) {
+      await deps.telegram(env, "sendMessage", {
+        chat_id: env.TELEGRAM_CHAT_ID,
+        text: "ПРЕДПРОСМОТР ЕЖЕЧАСНОЙ РУБРИКИ — БЕЗ ПУБЛИКАЦИИ\n\nТренд: " + selectedTrend.name + "\n\n" + text + "\n\nПроверка формата и безопасности пройдена. В Threads ничего не отправлялось."
+      });
+      return { ok: true, preview: true, trend: selectedTrend.name, text };
+    }
+
     let threadsResult = null;
     let threadsError = "";
 
@@ -290,7 +299,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
       text
     };
   } catch (error) {
-    await storage.put(slotKey, {
+    if (!preview) await storage.put(slotKey, {
       status: "failed",
       error: String(error.message || error).slice(0, 700),
       failed_at: new Date().toISOString()
