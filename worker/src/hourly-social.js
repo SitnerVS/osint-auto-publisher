@@ -297,14 +297,32 @@ const generationPrompt =
       } catch (_) {}
     }
     const isSkip = /^SKIP(?:\s|$)/i.test(generatedLines[0] || "") || /^SKIP(?:\s|$)/i.test(finalText);
-    if (isSkip || !trendId || !finalText) {
-      const skipReason = isSkip
-        ? "Модель решила пропустить выпуск: не нашла достаточно удачную шутку"
-        : "Ответ модели не содержит распознанных полей TREND_ID и текста";
-      console.warn("Hourly joke response could not be parsed:", rawResponse.slice(0, 1600));
+    if (isSkip) {
+      const skipReason = "Модель решила пропустить выпуск: не нашла достаточно удачную шутку";
+      console.warn("Hourly joke deliberately skipped:", rawResponse.slice(0, 1200));
       if (!preview) await storage.put(slotKey, { status: "skipped", reason: "editorial_quality_rejected", detail: skipReason, created_at: new Date().toISOString() });
-      return { ok: true, skipped: true, reason: skipReason };
+      return { ok: true, skipped: true, reason: "editorial_quality_rejected", detail: skipReason };
     }
+    // The model may return a clean one-line joke instead of the requested
+    // metadata wrapper. Treat that as a valid joke candidate and use NONE;
+    // trend selection is optional and must never block an otherwise usable post.
+    if (!finalText && !trendId) {
+      finalText = normalizeText(rawResponse
+        .replace(/^\s*```(?:\w+)?/i, "")
+        .replace(/```\s*$/i, "")
+        .replace(/^(?:ответ|шутка|текст)\s*:\s*/i, ""));
+      if (finalText && finalText.length <= 500) {
+        trendId = "NONE";
+        console.warn("Hourly joke accepted without optional trend metadata:", rawResponse.slice(0, 1200));
+      }
+    }
+    if (!finalText) {
+      const skipReason = "Модель не вернула текст шутки";
+      console.warn("Hourly joke response was empty or unrecognized:", rawResponse.slice(0, 1600));
+      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "editorial_quality_rejected", detail: skipReason, created_at: new Date().toISOString() });
+      return { ok: true, skipped: true, reason: "editorial_quality_rejected", detail: skipReason };
+    }
+    if (!trendId) trendId = "NONE";
     // Platform names are not part of the joke; translate accidental mentions
     // into neutral Russian wording before the Cyrillic-only safety check.
     finalText = normalizeText(finalText.replace(/\bThreads\b/giu, "соцсеть"));
