@@ -368,7 +368,6 @@ const generationPrompt = [
       }
       const selectedTrend = { id: "FACTS", name: "Интересные и малоизвестные факты" };
       let rawVariants = Array.isArray(previewData.variants) ? previewData.variants : [];
-      let groundedSources = groundedSources;
       const trustedSource = url => {
         try {
           const host = new URL(url).hostname.toLowerCase().replace(/^www\./u, "");
@@ -401,7 +400,7 @@ const generationPrompt = [
           const verifiedDomains = new Set(verifiedUrls.map(url => {
             try { return new URL(url).hostname.toLowerCase().replace(/^www\./u, ""); } catch (_) { return ""; }
           }).filter(Boolean));
-          if (verifiedDomains.size < 2) issues.push("Вариант " + (index + 1) + ": нужны два независимых авторитетных источника из поисковой выдачи.");
+          if (verifiedDomains.size < 2) issues.push("Вариант " + (index + 1) + ": нужны два независимых авторитетных источника из результатов браузерного поиска Groq.");
           if (item.source_urls.some(url => !groundedSources.includes(url))) issues.push("Вариант " + (index + 1) + ": ссылка не подтверждена браузерным поиском Groq.");
         });
         return issues;
@@ -409,7 +408,7 @@ const generationPrompt = [
       let issues = validationIssues(variants);
       if (issues.length) {
         console.warn("Hourly preview validation failed; requesting one repair pass:", issues);
-        const repairPrompt = generationPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ФАКТЧЕК. Подготовь заново ровно пять фактов и укажи только реальные source_urls из Google Search grounding. Исправь ошибки: " + issues.join(" ") + " Не выдумывай ссылки и утверждения.";
+        const repairPrompt = generationPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ФАКТЧЕК. Подготовь заново ровно пять фактов и укажи только реальные source_urls из браузерного поиска Groq. Исправь ошибки: " + issues.join(" ") + " Не выдумывай ссылки и утверждения.";
         const repairedRaw = await deps.groqGenerate(env, repairPrompt, {
           task: "hourly_verified_facts_recheck",
           maxAttempts: 2,
