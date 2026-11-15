@@ -868,7 +868,7 @@ export default {
           if (result.preview && result.session_id) {
             await telegram(env, "sendMessage", hourlyVariantsPayload(chatId, result));
           } else {
-            await telegram(env, "sendMessage", { chat_id: chatId, text: "Не удалось подготовить пятёрку. Причина: " + String(result.reason || result.error || "неизвестная ошибка") });
+            await telegram(env, "sendMessage", { chat_id: chatId, text: "Не удалось подготовить пятёрку. Причина: " + String(result.reason || result.error || "неизвестная ошибка") + (result.detail ? "\nПодробности: " + String(result.detail).slice(0, 700) : "") });
           }
         }
 
