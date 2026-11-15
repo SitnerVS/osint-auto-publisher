@@ -542,6 +542,17 @@ export default {
           });
         }
 
+        else if (command === "/hourly_now") {
+          await telegram(env, "sendMessage", {
+            chat_id: chatId,
+            text: "Запускаю ежечасную рубрику прямо сейчас. Проверю тренды, подготовлю и проверю текст перед публикацией..."
+          });
+          await callCoordinator(env, "/hourly-trend", {
+            scheduled_at: Date.now(),
+            manual: true
+          });
+        }
+
         else if (command === "/threads_status") {
           const status = await callCoordinator(env, "/threads/status", {
             user_id: userId,
