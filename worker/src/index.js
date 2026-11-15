@@ -514,8 +514,8 @@ export default {
           const enabled = status.enabled === true;
           await telegram(env, "sendMessage", {
             chat_id: chatId,
-            text: "OSINTNER — УПРАВЛЕНИЕ РУБРИКАМИ\\n\\n" +
-              "Ежечасная юмористическая рубрика: " + (enabled ? "ВКЛЮЧЕНА" : "ОТКЛЮЧЕНА") + "\\n" +
+            text: "OSINTNER — УПРАВЛЕНИЕ РУБРИКАМИ\n\n" +
+              "Ежечасная юмористическая рубрика: " + (enabled ? "ВКЛЮЧЕНА" : "ОТКЛЮЧЕНА") + "\n" +
               "Редакционные публикации: по расписанию, с обязательным финальным одобрением.",
             reply_markup: {
               inline_keyboard: [
@@ -708,8 +708,8 @@ export default {
             await telegram(env, "editMessageText", {
               chat_id: callbackChatId,
               message_id: callback.message.message_id,
-              text: "OSINTNER — УПРАВЛЕНИЕ РУБРИКАМИ\\n\\n" +
-                "Ежечасная юмористическая рубрика: " + (enabled ? "ВКЛЮЧЕНА" : "ОТКЛЮЧЕНА") + "\\n" +
+              text: "OSINTNER — УПРАВЛЕНИЕ РУБРИКАМИ\n\n" +
+                "Ежечасная юмористическая рубрика: " + (enabled ? "ВКЛЮЧЕНА" : "ОТКЛЮЧЕНА") + "\n" +
                 "Редакционные публикации: по расписанию, с обязательным финальным одобрением.",
               reply_markup: {
                 inline_keyboard: [
