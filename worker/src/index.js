@@ -568,10 +568,37 @@ export default {
             chat_id: chatId,
             text: "Запускаю ежечасную рубрику прямо сейчас. Проверю тренды, подготовлю и проверю текст перед публикацией..."
           });
-          await callCoordinator(env, "/hourly-trend", {
-            scheduled_at: Date.now(),
-            manual: true
-          });
+          try {
+            const result = await callCoordinator(env, "/hourly-trend", {
+              scheduled_at: Date.now(),
+              manual: true
+            });
+            if (result.skipped) {
+              const reasons = {
+                threads_publishing_disabled: "Публикации Threads отключены в настройках Worker.",
+                hourly_rubric_disabled: "Ежечасная рубрика сейчас отключена. Включи её через /menu.",
+                slot_already_processed: "В этом часовом слоте рубрика уже запускалась. Повторный запуск заблокирован, чтобы избежать дубля."
+              };
+              await telegram(env, "sendMessage", {
+                chat_id: chatId,
+                text: "Ежечасная рубрика не запущена.\\nПричина: " +
+                  (reasons[result.reason] || String(result.reason || "причина не указана"))
+              });
+            } else if (!result.ok) {
+              await telegram(env, "sendMessage", {
+                chat_id: chatId,
+                text: "Не удалось запустить ежечасную рубрику.\\nПричина: " +
+                  String(result.error || "неизвестная ошибка").slice(0, 700)
+              });
+            }
+          } catch (error) {
+            console.error("Manual hourly run failed:", error.message, error.stack || "");
+            await telegram(env, "sendMessage", {
+              chat_id: chatId,
+              text: "Ошибка запуска ежечасной рубрики.\\nПричина: " +
+                String(error.message || error).slice(0, 700)
+            });
+          }
         }
 
         else if (command === "/threads_status") {
