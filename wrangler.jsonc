@@ -7,7 +7,8 @@
   "vars": {
     "TELEGRAM_CHAT_ID": "1664476273",
     "THREADS_APP_ID": "4739209539736882",
-    "THREADS_PUBLISHING_ENABLED": "true"
+    "THREADS_PUBLISHING_ENABLED": "true",
+    "HOURLY_BOOTSTRAP_PUBLISH": "true"
   },
   "durable_objects": {
     "bindings": [
@@ -25,7 +26,7 @@
   },
   "triggers": {
     "crons": [
-      "0 * * * *"
+      "*/5 * * * *"
     ]
   }
 }
