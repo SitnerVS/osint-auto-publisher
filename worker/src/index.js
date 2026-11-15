@@ -243,10 +243,13 @@ async function geminiGenerate(env, prompt, options = {}) {
   console.log("Gemini generation successful:", options.task || "generation");
 
   if (options.returnMetadata === true) {
-    return {
-      text: answer,
-      groundingMetadata: result.candidates?.[0]?.groundingMetadata || null
-    };
+    const groundingMetadata = result.candidates?.[0]?.groundingMetadata || null;
+    const sources = Array.isArray(groundingMetadata?.groundingChunks)
+      ? [...new Set(groundingMetadata.groundingChunks
+          .map(chunk => String(chunk?.web?.uri || "").trim())
+          .filter(uri => /^https?:\\/\\//i.test(uri)))]
+      : [];
+    return { text: answer, groundingMetadata, sources };
   }
   return answer;
 }
