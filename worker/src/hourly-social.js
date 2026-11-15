@@ -62,6 +62,11 @@ async function publishThreads(env, token, text) {
 export async function runHourlyTrend(coordinator, payload, deps) {
   const storage = coordinator.ctx.storage;
   const env = coordinator.env;
+
+  if (String(env.THREADS_PUBLISHING_ENABLED || "false").toLowerCase() !== "true") {
+    return { ok: true, skipped: true, reason: "threads_publishing_disabled" };
+  }
+
   const scheduledAt = Number(payload?.scheduled_at || Date.now());
   const slot = new Date(scheduledAt).toISOString().slice(0, 13);
   const slotKey = "social:hourly:slot:" + slot;
