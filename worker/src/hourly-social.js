@@ -450,7 +450,11 @@ const generationPrompt = [
             ["britannica.com","nature.com","science.org","pnas.org","cell.com","si.edu",
              "smithsonianmag.com","nationalgeographic.com","unesco.org","rsc.org","aps.org",
              "jstor.org","ox.ac.uk","cam.ac.uk","harvard.edu","stanford.edu",
-             "metmuseum.org","amnh.org","royalsocietypublishing.org","nationalacademies.org","history.com"].some(domain =>
+             "arxiv.org","ieee.org","acm.org","computer.org","mit.edu","berkeley.edu",
+             "openai.com","deepmind.google","ai.google","blog.google","microsoft.com",
+             "blogs.microsoft.com","nvidia.com","intel.com","amd.com","ibm.com",
+             "huggingface.co","github.com","metmuseum.org","amnh.org",
+             "royalsocietypublishing.org","nationalacademies.org","history.com"].some(domain =>
               host === domain || host.endsWith("." + domain));
         } catch (_) { return false; }
       };
