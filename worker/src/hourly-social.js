@@ -1,9 +1,33 @@
 function parseJsonObject(raw) {
   const source = String(raw || "").trim();
-  const start = source.indexOf("{");
-  const end = source.lastIndexOf("}");
-  if (start < 0 || end <= start) throw new Error("AI response is not valid JSON");
-  return JSON.parse(source.slice(start, end + 1));
+  // Find a complete JSON object without being confused by braces inside strings.
+  for (let start = source.indexOf("{"); start >= 0; start = source.indexOf("{", start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < source.length; i++) {
+      const ch = source[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\\\") escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') inString = true;
+      else if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          try {
+            const parsed = JSON.parse(source.slice(start, i + 1));
+            if (parsed && typeof parsed === "object") return parsed;
+          } catch (_) {}
+          break;
+        }
+      }
+    }
+  }
+  throw new Error("AI response is not valid JSON");
 }
 
 function parsePreviewVariants(raw) {
@@ -12,19 +36,37 @@ function parsePreviewVariants(raw) {
     const parsed = parseJsonObject(source);
     if (parsed && Array.isArray(parsed.variants)) return parsed;
   } catch (_) {}
-  // Models sometimes ignore JSON-only instructions. Recover five clean,
-  // numbered one-line variants instead of discarding the entire preview.
-  const lines = source
-    .replace(/\`\`\`[\s\S]*?\n?/g, "")
-    .split(/\r?\n/u)
-    .map(line => line.trim())
+
+  // Recover numbered options even when the model adds headings, blank lines,
+  // Markdown fences, or a short explanation around the five actual options.
+  const cleaned = source
+    .replace(/```(?:json)?/giu, "")
+    .replace(/\r/gu, "");
+  const numbered = [];
+  for (const line of cleaned.split("\n")) {
+    const match = line.trim().match(/^(?:вариант\s*)?([1-5])[.)\-:]\s*(.+)$/iu);
+    if (!match) continue;
+    const text = match[2].trim().replace(/^["«„]|["»”]$/gu, "").trim();
+    if (text) numbered.push({ number: Number(match[1]), text });
+  }
+  const unique = [];
+  for (const item of numbered) {
+    if (!unique.some(existing => existing.number === item.number)) unique.push(item);
+  }
+  unique.sort((a, b) => a.number - b.number);
+  if (unique.length === 5 && unique.every((item, index) => item.number === index + 1)) {
+    return { trend_id: "NONE", variants: unique.map(item => ({ text: item.text, angle: "" })) };
+  }
+
+  // Also accept exactly five plain non-empty lines, excluding explanatory labels.
+  const lines = cleaned.split("\n")
+    .map(line => line.trim().replace(/^(?:[-*•])\s*/, "").replace(/^["«„]|["»”]$/gu, "").trim())
     .filter(Boolean)
-    .map(line => line.replace(/^\s*(?:вариант\s*)?\d+[.)\-:]\s*/iu, "").replace(/^["«„]|["»”]$/gu, "").trim())
-    .filter(line => line && !/^(?:вот|варианты|результат|trend_id|angle)\b/iu.test(line));
+    .filter(line => !/^(?:вот|варианты|результат|готово|trend_id|angle)\b/iu.test(line));
   if (lines.length === 5) {
     return { trend_id: "NONE", variants: lines.map(text => ({ text, angle: "" })) };
   }
-  throw new Error("AI response is neither valid JSON nor exactly five numbered lines");
+  throw new Error("AI response is neither valid JSON nor five numbered options");
 }
 
 function normalizeText(value) {
