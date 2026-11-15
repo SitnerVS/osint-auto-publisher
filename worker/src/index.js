@@ -354,8 +354,17 @@ async function runMenuAction(env, action, userId, chatId) {
   }
   if (action === "threads_trends_test") {
     const result = await callCoordinator(env, "/threads/trends-test", { user_id: userId, chat_id: chatId });
-    const details = (result.countries || []).map(item => item.country + ": HTTP " + item.http_status + ", трендов: " + (item.count ?? "—")).join("\n");
-    await telegram(env, "sendMessage", { chat_id: chatId, text: "ПРОВЕРКА THREADS TRENDING TOPICS\n" + details + "\nПубликация не выполнялась." });
+    const details = (result.countries || []).map(item =>
+      item.country + ": HTTP " + (item.http_status ?? "—") +
+      (item.count !== undefined ? ", трендов: " + item.count : ", ошибка: " + String(item.error || "неизвестная ошибка")) +
+      (item.topics?.length ? "\n" + item.topics.join("\n") : "")
+    ).join("\n\n");
+    await telegram(env, "sendMessage", {
+      chat_id: chatId,
+      text: (result.success ? "THREADS TRENDING TOPICS: ДОСТУП ЕСТЬ" : "THREADS TRENDING TOPICS: ОШИБКА ПРОВЕРКИ") +
+        "\n\n" + (details || String(result.error || "API не вернул данные.")) +
+        "\n\nПроверка только читает тренды. Генерация и публикация не запускались."
+    });
     return;
   }
   if (action === "settings") {
@@ -1088,6 +1097,20 @@ export default {
         error.stack || ""
       );
 
+      const failedChatId = String(update?.message?.chat?.id || update?.callback_query?.message?.chat?.id || "");
+      const failedChat = update?.message?.chat || update?.callback_query?.message?.chat;
+      if (failedChatId && isAuthorizedChat(failedChat, env)) {
+        try {
+          await telegram(env, "sendMessage", {
+            chat_id: failedChatId,
+            text: "Команда не выполнена из-за ошибки.\nПричина: " + String(error.message || error).slice(0, 700) +
+              "\n\nНичего дополнительно не публиковалось. Попробуй повторить действие позже."
+          });
+        } catch (notifyError) {
+          console.error("Webhook error notification failed:", notifyError.message);
+        }
+      }
+
       return new Response("Internal error", {
         status: 500
       });
@@ -1202,39 +1225,46 @@ export class ApprovalCoordinator {
           } else {
             const countryResults = [];
             for (const countryCode of ["US", "JP"]) {
-              const trendsUrl = new URL("https://graph.threads.com/v1.0/trending_topics");
-              trendsUrl.searchParams.set("country_code", countryCode);
-              trendsUrl.searchParams.set("access_token", token.access_token);
-              const trendsResponse = await fetch(trendsUrl.toString());
-              const trendsResult = await trendsResponse.json().catch(() => ({}));
-              if (!trendsResponse.ok) {
-                const apiError = trendsResult.error || {};
+              try {
+                const trendsUrl = new URL("https://graph.threads.com/v1.0/trending_topics");
+                trendsUrl.searchParams.set("country_code", countryCode);
+                trendsUrl.searchParams.set("access_token", token.access_token);
+                const trendsResponse = await fetch(trendsUrl.toString());
+                const trendsResult = await trendsResponse.json().catch(() => ({}));
+                if (!trendsResponse.ok) {
+                  const apiError = trendsResult.error || {};
+                  countryResults.push({
+                    country: countryCode,
+                    http_status: trendsResponse.status,
+                    error: [
+                      apiError.message || "Threads Trending Topics API вернул ошибку",
+                      apiError.type ? "type=" + apiError.type : "",
+                      apiError.code !== undefined ? "code=" + apiError.code : "",
+                      apiError.error_subcode !== undefined ? "subcode=" + apiError.error_subcode : "",
+                      apiError.fbtrace_id ? "fbtrace_id=" + apiError.fbtrace_id : ""
+                    ].filter(Boolean).join("; ")
+                  });
+                } else {
+                  const raw = Array.isArray(trendsResult.trends)
+                    ? trendsResult.trends
+                    : Array.isArray(trendsResult.data)
+                      ? trendsResult.data
+                      : Array.isArray(trendsResult.trending_topics)
+                        ? trendsResult.trending_topics
+                        : [];
+                  countryResults.push({
+                    country: countryCode,
+                    http_status: trendsResponse.status,
+                    count: raw.length,
+                    response_keys: Object.keys(trendsResult).slice(0, 12),
+                    topics: raw.slice(0, 5).map(item => String(item.title || item.name || item.topic || item.trend_name || "").slice(0, 120)).filter(Boolean)
+                  });
+                }
+              } catch (error) {
                 countryResults.push({
                   country: countryCode,
-                  http_status: trendsResponse.status,
-                  error: [
-                    apiError.message || "Threads Trending Topics API вернул ошибку",
-                    apiError.type ? "type=" + apiError.type : "",
-                    apiError.code !== undefined ? "code=" + apiError.code : "",
-                    apiError.error_subcode !== undefined ? "subcode=" + apiError.error_subcode : "",
-                    apiError.fbtrace_id ? "fbtrace_id=" + apiError.fbtrace_id : ""
-                  ].filter(Boolean).join("; ")
-                });
-              } else {
-                const raw = Array.isArray(trendsResult.trends)
-                  ? trendsResult.trends
-                  : Array.isArray(trendsResult.data)
-                    ? trendsResult.data
-                    : Array.isArray(trendsResult.trending_topics)
-                      ? trendsResult.trending_topics
-                      : [];
-                countryResults.push({
-                  country: countryCode,
-                  http_status: trendsResponse.status,
-                  count: raw.length,
-                  response_keys: Object.keys(trendsResult).slice(0, 12),
-                  response_preview: JSON.stringify(trendsResult).slice(0, 900),
-                  topics: raw.slice(0, 5).map(item => String(item.title || item.name || item.topic || item.trend_name || "").slice(0, 120)).filter(Boolean)
+                  http_status: 0,
+                  error: String(error.message || error).slice(0, 400)
                 });
               }
             }
