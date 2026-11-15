@@ -470,7 +470,7 @@ async function runMenuAction(env, action, userId, chatId) {
     if (result.preview && result.session_id) {
       await telegram(env, "sendMessage", hourlyVariantsPayload(chatId, result));
     } else {
-      await telegram(env, "sendMessage", { chat_id: chatId, text: "Не удалось подготовить пятёрку: " + String(result.reason || result.error || "неизвестная ошибка") + (result.detail ? "\\nПодробности: " + String(result.detail).slice(0, 700) : "") });
+      await telegram(env, "sendMessage", { chat_id: chatId, text: "Не удалось подготовить пятёрку: " + String(result.reason || result.error || "неизвестная ошибка") + (result.detail ? "\nПодробности: " + String(result.detail).slice(0, 700) : "") });
     }
     return;
   }
@@ -481,7 +481,7 @@ async function runMenuAction(env, action, userId, chatId) {
     } else {
       await telegram(env, "sendMessage", {
         chat_id: chatId,
-        text: "Не удалось подготовить пятёрку. Причина: " + String(result.reason || result.error || "неизвестная ошибка")
+        text: "Не удалось подготовить пятёрку. Причина: " + String(result.reason || result.error || "неизвестная ошибка") + (result.detail ? "\nПодробности: " + String(result.detail).slice(0, 700) : "")
       });
     }
     return;
@@ -880,14 +880,14 @@ export default {
           if (settings.enabled) {
             const result = await callCoordinator(env, "/hourly-trend", { scheduled_at: Date.now(), manual: true, preview: true });
             if (result.preview && result.session_id) await telegram(env, "sendMessage", hourlyVariantsPayload(chatId, result));
-            else await telegram(env, "sendMessage", { chat_id: chatId, text: "Не удалось подготовить пятёрку: " + String(result.reason || result.error || "неизвестная ошибка") + (result.detail ? "\\nПодробности: " + String(result.detail).slice(0, 700) : "") });
+            else await telegram(env, "sendMessage", { chat_id: chatId, text: "Не удалось подготовить пятёрку: " + String(result.reason || result.error || "неизвестная ошибка") + (result.detail ? "\nПодробности: " + String(result.detail).slice(0, 700) : "") });
           }
         }
 
         else if (command === "/hourly_now") {
           const result = await callCoordinator(env, "/hourly-trend", { scheduled_at: Date.now(), manual: true, preview: true });
           if (result.preview && result.session_id) await telegram(env, "sendMessage", hourlyVariantsPayload(chatId, result));
-          else await telegram(env, "sendMessage", { chat_id: chatId, text: "Не удалось подготовить пятёрку: " + String(result.reason || result.error || "неизвестная ошибка") + (result.detail ? "\\nПодробности: " + String(result.detail).slice(0, 700) : "") });
+          else await telegram(env, "sendMessage", { chat_id: chatId, text: "Не удалось подготовить пятёрку: " + String(result.reason || result.error || "неизвестная ошибка") + (result.detail ? "\nПодробности: " + String(result.detail).slice(0, 700) : "") });
         }
 
         else if (command === "/threads_trends_test") {
