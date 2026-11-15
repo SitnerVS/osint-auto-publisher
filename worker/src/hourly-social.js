@@ -71,7 +71,30 @@ export async function runHourlyTrend(coordinator, payload, deps) {
   const slot = new Date(scheduledAt).toISOString().slice(0, 13);
   const slotKey = "social:hourly:slot:" + slot;
   const existing = await storage.get(slotKey);
-  if (existing) return { ok: true, skipped: true, reason: "slot_already_processed" };
+  if (existing) {
+    const alreadyPublished =
+      existing.status === "published" ||
+      Boolean(existing.threads_post_id) ||
+      Boolean(existing.published_at);
+
+    if (alreadyPublished) {
+      return { ok: true, skipped: true, reason: "slot_already_published" };
+    }
+
+    const startedAt = Date.parse(existing.created_at || "");
+    const isRunning =
+      existing.status === "started" &&
+      Number.isFinite(startedAt) &&
+      Date.now() - startedAt < 10 * 60 * 1000;
+
+    if (isRunning) {
+      return { ok: true, skipped: true, reason: "slot_in_progress" };
+    }
+
+    if (!payload?.manual) {
+      return { ok: true, skipped: true, reason: "slot_already_processed" };
+    }
+  }
 
   const threadsToken = await storage.get("threads:oauth:token");
   const now = Date.now();
