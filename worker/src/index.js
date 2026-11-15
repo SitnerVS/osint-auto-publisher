@@ -732,7 +732,9 @@ export default {
             }
             const result = await callCoordinator(env, "/hourly-trend", {
               scheduled_at: Date.now(),
-              manual: true
+              manual: true,
+              force_manual: true,
+              manual_id: crypto.randomUUID()
             });
             if (result.skipped) {
               const reasons = {
