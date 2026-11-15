@@ -375,8 +375,8 @@ function menuKeyboard(enabled) {
   return {
     inline_keyboard: [
       [{ text: "🧠 Новая редакционная тема", callback_data: "menu:generate" }, { text: "😄 Юмор без очереди", callback_data: "humor:start" }],
-      [{ text: "🚀 Юмор по трендам сейчас", callback_data: "menu:hourly_now" }, { text: "▶️ Включить и запустить", callback_data: "menu:hourly_start" }],
-      [{ text: enabled ? "🔴 Выключить автоюмор" : "🟢 Включить автоюмор", callback_data: "hourly_toggle" }, { text: "👀 Предпросмотр", callback_data: "menu:hourly_preview" }],
+      [{ text: "🚀 Интересные факты сейчас", callback_data: "menu:hourly_now" }, { text: "▶️ Включить и запустить", callback_data: "menu:hourly_start" }],
+      [{ text: enabled ? "🔴 Выключить автофакты" : "🟢 Включить автофакты", callback_data: "hourly_toggle" }, { text: "👀 Предпросмотр", callback_data: "menu:hourly_preview" }],
       [{ text: "🔗 Статус Threads", callback_data: "menu:threads_status" }, { text: "🔐 Права публикации", callback_data: "menu:threads_publish_check" }],
       [{ text: "📈 Проверить тренды", callback_data: "menu:threads_trends_test" }, { text: "⚙️ Настройки", callback_data: "menu:settings" }],
       [{ text: "🧪 Тест согласования", callback_data: "menu:test" }, { text: "🤖 Проверка Gemini", callback_data: "menu:ai_test" }],
@@ -396,7 +396,7 @@ async function sendMainMenu(env, chatId, userId, messageId = null, welcome = fal
   const enabled = status.enabled === true;
   const text = (welcome ? "OSINT Editorial подключён.\nСистема управления готова.\n\n" : "") +
     "OSINTNER — ГЛАВНОЕ МЕНЮ\n\n" +
-    "Ежечасный юмор: " + (enabled ? "ВКЛЮЧЁН" : "ВЫКЛЮЧЕН") + "\n" +
+    "Ежечасные факты: " + (enabled ? "ВКЛЮЧЁН" : "ВЫКЛЮЧЕН") + "\n" +
     "Редакционные публикации: 09:00, 12:00, 15:00, 18:00 и 21:00 — с финальным одобрением.\n\n" +
     "Выбери действие:";
   if (!messageId) {
@@ -421,7 +421,12 @@ async function sendMainMenu(env, chatId, userId, messageId = null, welcome = fal
 }
 
 function hourlyVariantsPayload(chatId, result, messageId = null) {
-  const lines = (result.variants || []).map((item, index) => (index + 1) + ". " + item.text).join("\n\n");
+  const lines = (result.variants || []).map((item, index) => {
+    const source = Array.isArray(item.source_urls) && item.source_urls.length
+      ? "\\nИсточник: " + item.source_urls[0]
+      : "";
+    return (index + 1) + ". " + item.text + source;
+  }).join("\n\n");
   const keyboard = (result.variants || []).map((item, index) => [{
     text: "Опубликовать вариант " + (index + 1),
     callback_data: "hourly:publish:" + result.session_id + ":" + index
@@ -429,7 +434,7 @@ function hourlyVariantsPayload(chatId, result, messageId = null) {
   keyboard.push([{ text: "Отклонить всю пятёрку", callback_data: "hourly:reject:" + result.session_id }]);
   const payload = {
     chat_id: chatId,
-    text: "ЕЖЕЧАСНЫЙ ЮМОР — ВЫБЕРИ ОДИН ВАРИАНТ\n" +
+    text: "ЕЖЕЧАСНЫЕ ФАКТЫ — ВЫБЕРИ ОДИН ВАРИАНТ\n" +
       "Тема: " + (result.trend || "Свободная тема") + "\n" +
       "На выбор — 3 минуты. Публикация только после твоего нажатия.\n\n" + lines,
     reply_markup: { inline_keyboard: keyboard }
@@ -1075,8 +1080,8 @@ export default {
               "/start или /menu — главное меню\n" +
               "/generate — новая редакционная тема\n" +
               "/test — тест согласования без публикации\n" +
-              "/hourly_now — юмор по трендам вне очереди\n" +
-              "/hourly_start — включить автоюмор и запустить\n" +
+              "/hourly_now — факты вне очереди\n" +
+              "/hourly_start — включить автоподборку фактов и запустить\n" +
               "/hourly_preview — предпросмотр без публикации\n" +
               "/threads_status — статус подключения Threads\n" +
               "/threads_publish_check — проверка разрешений\n" +
@@ -1246,7 +1251,7 @@ export default {
           } else {
             await telegram(env, "sendMessage", {
               chat_id: env.TELEGRAM_CHAT_ID,
-              text: "Не удалось подготовить ежечасную пятёрку. Причина: " + String(hourlyResult.reason || hourlyResult.error || "неизвестная ошибка")
+              text: "Не удалось подготовить ежечасную подборку фактов. Причина: " + String(hourlyResult.reason || hourlyResult.error || "неизвестная ошибка")
             });
           }
         }
