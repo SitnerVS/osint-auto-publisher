@@ -127,7 +127,7 @@ async function geminiGenerate(env, prompt, options = {}) {
   console.log("Gemini request started:", options.task || "generation");
 
   const humorCreativeTask = /^(manual_humor_variants|manual_humor_editor|hourly_social_copy|hourly_social_copy_retry)$/.test(String(options.task || ""));
-  const model = options.model || (humorCreativeTask ? "gemini-3.8-flash" : "gemini-3.5-flash-lite");
+  const model = options.model || "gemini-3.5-flash-lite";
   const requestBody = {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
@@ -150,13 +150,6 @@ async function geminiGenerate(env, prompt, options = {}) {
   );
 
   let response = await requestGemini(model, requestBody);
-
-  // If the stronger humor model is rate-limited, make one controlled fallback
-  // attempt with the lighter model. Never loop or retry indefinitely.
-  if (response.status === 429 && model !== "gemini-3.5-flash-lite") {
-    console.warn("Gemini primary model rate-limited; trying one lite-model fallback.");
-    response = await requestGemini("gemini-3.5-flash-lite", requestBody);
-  }
 
   let result;
 
