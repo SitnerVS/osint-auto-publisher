@@ -4,12 +4,11 @@ import { runHourlyTrend } from "./hourly-social.js";
 
 const SETTINGS = settings;
 
-const STAGES = ["topic", "text", "visual", "final"];
+const STAGES = ["topic", "text", "final"];
 
 const STAGE_NAMES = {
   topic: "ТЕМА",
   text: "ТЕКСТ",
-  visual: "ВИЗУАЛ",
   final: "ФИНАЛЬНОЕ РАЗРЕШЕНИЕ"
 };
 
@@ -62,58 +61,11 @@ function splitTelegramText(text, limit = TELEGRAM_SAFE_LIMIT) {
   return chunks;
 }
 
-function getFinalVisualSummary(visualContent) {
-  if (!visualContent) {
-    return "Визуальная концепция не указана.";
-  }
-
-  const formatMatch = visualContent.match(
-    /ФОРМАТ\s*:\s*([^\n]+)/i
-  );
-
-  const conceptMatch = visualContent.match(
-    /КОНЦЕПЦИЯ\s*:\s*([^\n]+)/i
-  );
-
-  const format = formatMatch?.[1]?.trim() || "См. согласованный визуал";
-  const concept = conceptMatch?.[1]?.trim() || "";
-
-  return [
-    `Формат: ${format}`,
-    concept ? `Концепция: ${concept}` : ""
-  ].filter(Boolean).join("\n");
-}
-
 function getApprovalContent(item) {
-  if (item.stage === "topic") {
-    return item.content || "";
+  if (item.stage === "topic") return item.content || "";
+  if (item.stage === "text" || item.stage === "final") {
+    return String(item.text_content || item.content || "").trim();
   }
-
-  if (item.stage === "text") {
-    return item.text_content || item.content || "";
-  }
-
-  if (item.stage === "visual") {
-    return (
-      String(item.visual_content || item.content || "") +
-      "\n\nПОДПИСЬ ЭТОГО ЖЕ ПОСТА THREADS (ОДНО ИЗОБРАЖЕНИЕ + ЭТОТ ТЕКСТ):\n" +
-      String(item.text_content || "").trim()
-    );
-  }
-
-  if (item.stage === "final") {
-    const text = item.text_content || "";
-    const visualSummary = getFinalVisualSummary(
-      item.visual_content
-    );
-
-    return (
-      `${text}\n\n` +
-      `СОГЛАСОВАННЫЙ ВИЗУАЛ\n` +
-      `${visualSummary}`
-    );
-  }
-
   return item.content || "";
 }
 
@@ -162,164 +114,6 @@ async function telegram(env, method, data) {
   }
 
   return result;
-}
-
-// ======================================================
-// CLOUDFLARE WORKERS AI — IMAGE GENERATION
-// ======================================================
-
-async function generateCloudflareImage(env, prompt) {
-  if (!env.AI || typeof env.AI.run !== "function") {
-    throw new Error("Cloudflare Workers AI binding AI is not configured");
-  }
-  // Lucid Origin is selected for stronger prompt adherence and graphic-design styles.
-  // Unlike FLUX.2 dev, it accepts a direct JSON input rather than multipart form data.
-  const result = await env.AI.run("@cf/leonardo/lucid-origin", {
-    prompt,
-    width: 1024,
-    height: 1280,
-    guidance: 7.5,
-    num_steps: 30
-  });
-  if (!result || typeof result.image !== "string" || !result.image) {
-    throw new Error("Leonardo Lucid Origin returned no image data");
-  }
-  const binary = atob(result.image);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-async function telegramSendPhoto(env, chatId, imageBytes, caption) {
-  if (!env.TELEGRAM_BOT_TOKEN) {
-    throw new Error("TELEGRAM_BOT_TOKEN is not configured");
-  }
-
-  const form = new FormData();
-  form.append("chat_id", String(chatId));
-  form.append("caption", caption);
-  form.append(
-    "photo",
-    new Blob([imageBytes], { type: "image/png" }),
-    "osint-image-test.png"
-  );
-
-  const response = await fetch(
-    `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`,
-    {
-      method: "POST",
-      body: form
-    }
-  );
-
-  let result;
-
-  try {
-    result = await response.json();
-  } catch {
-    throw new Error(`Telegram sendPhoto returned invalid JSON: ${response.status}`);
-  }
-
-  if (!response.ok || !result.ok) {
-    throw new Error(
-      `Telegram sendPhoto failed: ${result.description || response.status}`
-    );
-  }
-
-  return result;
-}
-
-// ======================================================
-
-async function telegramSendMediaGroup(env, chatId, images, caption) {
-  if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
-  if (!Array.isArray(images) || images.length < 2 || images.length > 10) throw new Error("Telegram media group must contain between 2 and 10 images");
-  const form = new FormData();
-  form.append("chat_id", String(chatId));
-  const media = images.map((image, index) => {
-    const attachment = "photo" + index;
-    form.append(attachment, new Blob([image.bytes], { type: "image/png" }), "osint-slide-" + (index + 1) + ".png");
-    return { type: "photo", media: "attach://" + attachment, ...(index === 0 && caption ? { caption: String(caption).slice(0, 900) } : {}) };
-  });
-  form.append("media", JSON.stringify(media));
-  const response = await fetch("https://api.telegram.org/bot" + env.TELEGRAM_BOT_TOKEN + "/sendMediaGroup", { method: "POST", body: form });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || !result.ok) throw new Error("Telegram sendMediaGroup failed: " + String(result.description || response.status));
-  return result;
-}
-
-async function telegramSendVisualPreview(env, chatId, images, caption) {
-  if (!Array.isArray(images) || images.length !== 1) {
-    throw new Error("OSINTNER preview must contain exactly one image for one Threads post");
-  }
-  return telegramSendPhoto(env, chatId, images[0].bytes, String(caption || "").slice(0, 1024));
-}
-
-function parseVisualPlan(raw) {
-  const source = String(raw || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  const start = source.indexOf("{"), end = source.lastIndexOf("}");
-  if (start < 0 || end <= start) throw new Error("Visual plan is not valid JSON");
-  const plan = JSON.parse(source.slice(start, end + 1));
-  if (!plan || typeof plan !== "object" || Array.isArray(plan) || plan.format !== "single" || !Array.isArray(plan.slides)) throw new Error("Visual plan must use the single-image format");
-  if (plan.slides.length !== 1) throw new Error("OSINTNER publication must contain exactly one image");
-  for (const slide of plan.slides) if (!slide || typeof slide.prompt !== "string" || slide.prompt.trim().length < 40) throw new Error("Visual plan contains an incomplete image prompt");
-  return plan;
-}
-
-function formatVisualPlan(plan) {
-  return [
-    "ФОРМАТ: ОДИН ПОСТ THREADS С ОДНИМ ИЗОБРАЖЕНИЕМ",
-    "КОНЦЕПЦИЯ: " + String(plan.concept || "").trim(),
-    "ОБОСНОВАНИЕ: " + String(plan.rationale || "").trim(),
-    "ОБЩИЕ ПАРАМЕТРЫ: один вертикальный векторный редакционный визуал 4:5; тёмная палитра OSINTNER #0B0D0F, #15181B, #E7E9EA, #858B91; оранжевый акцент #FF5A36; точечный приглушённый зелёный #A7D65C только для отметки подтверждения; без текста и логотипов",
-    "ЕДИНСТВЕННАЯ ВИЗУАЛЬНАЯ ИДЕЯ:",
-    String(plan.slides[0]?.title || "Тематическая векторная иллюстрация").trim()
-  ].join("\n");
-}
-
-async function generateAndStoreVisualAssets(env, itemId, plan, item) {
-  if (!env.EDITORIAL_DATA) throw new Error("EDITORIAL_DATA KV binding is not configured");
-  if (!plan || plan.format !== "single" || !Array.isArray(plan.slides) || plan.slides.length !== 1) {
-    throw new Error("OSINTNER requires exactly one visual asset per Threads post");
-  }
-  const slide = plan.slides[0];
-  const baseUrl = "https://osint-telegram-gateway-staging.vssitner.workers.dev";
-  const basePrompt = [
-    "ТЕМАТИЧЕСКАЯ СЦЕНА: " + String(slide.prompt).trim(),
-    "ОБЯЗАТЕЛЬНЫЙ СТИЛЬ — 2D EDITORIAL VECTOR POSTER: clean flat vector illustration, SVG-like graphic design, geometric cut-paper composition, crisp outlines, uniform stroke width, solid matte fills. It must look like a professionally art-directed vector poster made from flat shapes, not an image of a physical scene.",
-    "КРИТИЧЕСКИЙ ЗАПРЕТ НА ОБЪЁМ: абсолютно никаких 3D, CGI, объёмных предметов, теней (включая падающие и внутренние), градиентов, бликов, отражений, свечения, объёмного освещения, ambient occlusion, перспективной глубины, фасок, экструзии, моделирующего затенения и реалистичных текстур. Не добавляй светотеневую растяжку для создания объёма. Каждый участок цвета должен быть плоским и однородным.",
-    "ТОЧНАЯ ПАЛИТРА: фон #0B0D0F и #15181B; светлые элементы #E7E9EA; вторичные #858B91; акцент #FF5A36; #A7D65C допустим только для одного небольшого маркера подтверждения. Не вводи другие цвета.",
-    "Композиция: вертикаль 4:5, один главный смысловой объект и максимум два вспомогательных элемента. Главный объект должен быть крупным, узнаваемым и непосредственно раскрывать тему. Все предметы физически и геометрически самостоятельны, не пересекаются случайным образом, не сливаются, не деформируются и не имеют невозможных соединений. Ракурс преимущественно фронтальный или ортографический, без перспективного объёма.",
-    "ИЗОБРАЖЕНИЕ БЕЗ ТЕКСТА: ни букв, ни цифр, ни слов, ни псевдотекста, ни линий-имитаций текста, ни символов, ни логотипов, ни водяных знаков. Не изображай документы или экраны с надписями. Не добавляй типографику.",
-    "Не использовать фотографию, фотореализм, 3D, CGI, любые тени, градиенты, блики, отражения, объёмное освещение, перспективную глубину, текстуры, градиентные неоновые эффекты, киберпанк, матричные символы, хакеров, интерфейсы, HUD, дашборды, случайные ноутбуки, лупы, папки или абстрактные сети, если они прямо не являются предметом статьи.",
-    "Изображение должно выглядеть как авторская плоская векторная обложка премиального расследовательского медиа, а не как случайная генерация или стоковая иллюстрация.",
-    "Размер 1024x1280. Текст публикации будет размещён отдельно в подписи того же единственного поста Threads."
-  ].join("\n");
-  let bytes = null;
-  let imageReview = null;
-  let finalPrompt = basePrompt;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    finalPrompt = basePrompt + (attempt === 0 ? "" : "\nПРЕДЫДУЩАЯ ВЕРСИЯ ОТКЛОНЕНА ПРОВЕРКОЙ: " + String(imageReview?.reason || "не соблюдены критерии").slice(0, 900) + ". Исправь конкретно перечисленные недостатки; не меняй тему.");
-    bytes = await generateCloudflareImage(env, finalPrompt);
-    imageReview = await reviewGeneratedVisual(env, bytes, item, slide, plan);
-    if (imageReview.pass === true) break;
-    if (attempt === 1) {
-      throw new Error("Generated image failed mandatory OSINTNER visual QA: " + String(imageReview.reason || "style, relevance, text or geometry check failed").slice(0, 700));
-    }
-  }
-  if (!bytes || !imageReview || imageReview.pass !== true) throw new Error("Generated image did not pass mandatory visual QA");
-  const id = crypto.randomUUID().replace(/-/g, "");
-  await env.EDITORIAL_DATA.put("social-image:" + id, bytes, { expirationTtl: 60 * 60 * 24 * 90 });
-  return [{
-    id,
-    url: baseUrl + "/media/" + id,
-    title: String(slide.title || "Тематическая иллюстрация").slice(0, 180),
-    alt_text: String(slide.alt_text || slide.title || "Векторная иллюстрация по теме публикации").slice(0, 1000),
-    item_id: itemId,
-    slide: 1,
-    format: "single",
-    visual_qa: imageReview
-  }];
 }
 
 // GEMINI AI
@@ -401,58 +195,6 @@ async function geminiGenerate(env, prompt, options = {}) {
   return answer;
 }
 
-async function reviewGeneratedVisual(env, imageBytes, item, slide, plan) {
-  const binary = Array.from(imageBytes, byte => String.fromCharCode(byte)).join("");
-  const imageBase64 = btoa(binary);
-  const reviewPrompt =
-    "Ты независимый визуальный контролёр премиального OSINTNER. Ты видишь приложенное реальное изображение, а не только его описание. Сопоставь изображение с темой и проверь каждый критерий. " +
-    "Верни ТОЛЬКО JSON без markdown с boolean полями: relevant, vector_style, palette, no_text, geometry, single_composition, pass; и строковым reason. " +
-    "relevant=true только если главный объект и действие изображения однозначно относятся к теме. vector_style=true только если это явно двумерная плоская SVG-подобная редакционная векторная графика: ровные однотонные заливки и чёткие контуры. Любые тени, градиенты, блики, отражения, объёмное освещение, псевдообъёмное затенение, перспектива с глубиной, CGI или 3D означают false. " +
-    "palette=true только если доминируют #0B0D0F/#15181B, светлые #E7E9EA, вторичные #858B91, акцент #FF5A36 и максимум редкий #A7D65C; заметные посторонние цвета означают false. " +
-    "no_text=true только если на изображении нет вообще никаких букв, цифр, слов, псевдотекста, надписей, водяных знаков, логотипов или текстоподобных штрихов. " +
-    "geometry=true только если объекты целостны, не сливаются, не деформированы и не имеют невозможной геометрии. single_composition=true только если это одна законченная композиция одного изображения, а не коллаж, серия или набор карточек. " +
-    "pass=true только если ВСЕ шесть критериев true. При сомнении ставь false. Не засчитывай соответствие только потому, что prompt обещает нужный стиль. " +
-    "ТЕМА: " + String(item?.title || "") +
-    " КАТЕГОРИЯ: " + String(item?.category || "") +
-    " ТЕКСТ ПОСТА: " + String(item?.text_content || item?.content || "").slice(0, 3200) +
-    " ЗАДАННАЯ КОНЦЕПЦИЯ: " + String(plan?.concept || "") +
-    " ОПИСАНИЕ ИЗОБРАЖЕНИЯ: " + String(slide?.prompt || "").slice(0, 1800);
-  const response = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": env.GEMINI_API_KEY
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: reviewPrompt },
-            { inline_data: { mime_type: "image/png", data: imageBase64 } }
-          ]
-        }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 350 }
-      })
-    }
-  );
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error("Visual QA API " + response.status + ": " + String(result.error?.message || "request failed"));
-  const raw = result.candidates?.[0]?.content?.parts?.map(part => part.text || "").join("").trim() || "";
-  const first = raw.indexOf("{");
-  const last = raw.lastIndexOf("}");
-  if (first < 0 || last <= first) throw new Error("Visual QA returned invalid JSON");
-  const review = JSON.parse(raw.slice(first, last + 1));
-  const required = ["relevant", "vector_style", "palette", "no_text", "geometry", "single_composition"];
-  for (const key of required) {
-    if (typeof review[key] !== "boolean") throw new Error("Visual QA omitted boolean criterion: " + key);
-  }
-  review.pass = review.pass === true && required.every(key => review[key] === true);
-  review.checked_at = new Date().toISOString();
-  return review;
-}
-
-// ======================================================
 // APPROVAL MESSAGE
 // ======================================================
 
@@ -543,22 +285,6 @@ export default {
       const url = new URL(request.url);
       const path = url.pathname;
       const redirectUri = "https://osint-telegram-gateway-staging.vssitner.workers.dev/threads/callback";
-
-      if (path.startsWith("/media/")) {
-        const mediaId = path.slice("/media/".length);
-        if (!/^[a-f0-9]{32}$/i.test(mediaId) || !env.EDITORIAL_DATA) {
-          return new Response("Not found", { status: 404 });
-        }
-        const imageBytes = await env.EDITORIAL_DATA.get("social-image:" + mediaId, "arrayBuffer");
-        if (!imageBytes) return new Response("Not found", { status: 404 });
-        return new Response(imageBytes, {
-          headers: {
-            "Content-Type": "image/png",
-            "Cache-Control": "public, max-age=3600",
-            "X-Content-Type-Options": "nosniff"
-          }
-        });
-      }
 
       if (path === "/threads/connect") {
         if (!env.THREADS_APP_ID || !env.THREADS_APP_SECRET) {
@@ -770,12 +496,10 @@ export default {
               "Система согласований готова.\n\n" +
               "Доступные команды:\n" +
               "/test — тест согласования\n" +
-              "/visual_test — безопасный тест генерации визуала\n" +
               "/generate — генерация новой темы\n" +
               "/publish_retry ID — безопасно повторить попытку Threads\n" +
               "/threads_status — проверить подключение Threads\n" +
               "/ai_test — проверка Gemini\n" +
-              "/image_test — тест генерации изображения\n" +
               "/settings — просмотр настроек\n" +
               "/id — проверка Telegram ID"
           });
@@ -803,7 +527,7 @@ export default {
               `Timezone: ${SETTINGS.publishing.schedule_timezone}\n` +
               `Editorial posts per day: ${SETTINGS.publishing.feed_posts_per_day}\n` +
               `Target schedule: ${SETTINGS.publishing.feed_schedule.join(", ")}\n` +
-              `Format: one image + one caption, no carousels\n` +
+              `Format: text-only Threads posts\n` +
               `Topic rotation: ${SETTINGS.content_strategy.topic_rotation.join(" → ")}\n` +
               `Hashtags: disabled`
           });
@@ -813,18 +537,6 @@ export default {
           console.log("Approval test started");
 
           await callCoordinator(env, "/test", {
-            user_id: userId,
-            chat_id: chatId
-          });
-        }
-
-        else if (command === "/visual_test") {
-          console.log("VISUAL GENERATION TEST REQUESTED");
-          await telegram(env, "sendMessage", {
-            chat_id: chatId,
-            text: "Запускаю безопасный тест генерации визуала. Тестовый материал не может быть опубликован в Threads."
-          });
-          await callCoordinator(env, "/visual-test", {
             user_id: userId,
             chat_id: chatId
           });
@@ -846,7 +558,7 @@ export default {
 
         else if (command === "/publish_retry") {
           const itemId = String(message.text || "").trim().split(/\s+/)[1] || "";
-          if (!/^material-[a-f0-9-]+$/i.test(itemId) && !/^visual-test-[a-f0-9-]+$/i.test(itemId)) {
+          if (!/^material-[a-f0-9-]+$/i.test(itemId)) {
             await telegram(env, "sendMessage", {
               chat_id: chatId,
               text: "Укажи ID материала: /publish_retry material-xxxxxxxx"
@@ -872,43 +584,6 @@ export default {
             user_id: userId,
             chat_id: chatId
           });
-        }
-
-        else if (command === "/image_test") {
-          console.log("CLOUDFLARE IMAGE TEST STARTED");
-
-          await telegram(env, "sendMessage", {
-            chat_id: chatId,
-            text: "Запускаю тест генерации изображения FLUX.2 Dev. Это может занять некоторое время..."
-          });
-
-          try {
-            const prompt =
-              "A single flat editorial vector illustration about tracing a company's digital footprint: one central abstract corporate building silhouette connected by a precise route to three distinct evidence nodes representing domain registration, public company records and related web assets. The relationships must be visually clear and unmistakably about corporate digital-footprint research. Premium OSINT investigative editorial vector style, strict palette #0B0D0F #15181B #E7E9EA #858B91, orange accent #FF5A36, rare verification green #A7D65C, geometric shapes, clean contours, vertical 4:5 composition. No photography, no 3D, no text, letters, numbers, pseudo-text, logos, watermarks, dashboards, cyberpunk, neon or visual clutter.";
-
-            const imageBytes = await generateCloudflareImage(env, prompt);
-
-            await telegramSendPhoto(
-              env,
-              chatId,
-              imageBytes,
-              "ТЕСТ ГЕНЕРАЦИИ ИЗОБРАЖЕНИЙ\nМодель: FLUX.2 Dev\nФормат: 1024 × 1280 (4:5)\nСреда: Cloudflare Workers Free"
-            );
-
-            console.log("CLOUDFLARE IMAGE TEST COMPLETED", {
-              bytes: imageBytes.byteLength
-            });
-
-          } catch (error) {
-            console.error("CLOUDFLARE IMAGE TEST FAILED:", error.message);
-
-            await telegram(env, "sendMessage", {
-              chat_id: chatId,
-              text:
-                "Не удалось сгенерировать тестовое изображение.\n\n" +
-                `Причина: ${String(error.message || error).slice(0, 1200)}`
-            });
-          }
         }
 
         else if (command === "/ai_test") {
@@ -955,13 +630,11 @@ export default {
               "Доступные команды:\n" +
               "/start\n" +
               "/test\n" +
-              "/visual_test\n" +
               "/generate\n" +
               "/publish_retry ID\n" +
               "/threads_status\n" +
               "/settings\n" +
               "/ai_test\n" +
-              "/image_test\n" +
               "/id"
           });
         }
@@ -1054,7 +727,6 @@ export class ApprovalCoordinator {
     if (
       path !== "/callback" &&
       path !== "/test" &&
-      path !== "/visual-test" &&
       path !== "/generate" &&
       path !== "/publish-retry" &&
       path !== "/threads/status" &&
@@ -1084,8 +756,6 @@ export class ApprovalCoordinator {
 
       if (path === "/test") {
         result = await this.handleTest(payload);
-      } else if (path === "/visual-test") {
-        result = await this.handleVisualTest(payload);
       } else if (path === "/generate") {
         result = await this.handleGenerate(payload);
       } else if (path === "/threads/status") {
@@ -1151,7 +821,7 @@ export class ApprovalCoordinator {
           result = { ok: true };
         }
       } else if (path === "/hourly-trend") {
-        result = await runHourlyTrend(this, payload, { geminiGenerate, generateCloudflareImage, telegram });
+        result = await runHourlyTrend(this, payload, { geminiGenerate, telegram });
       } else {
         result = await this.handleCallback(payload);
       }
@@ -1563,41 +1233,6 @@ export class ApprovalCoordinator {
     };
   }
 
-  async handleVisualTest(payload) {
-    const expectedId = String(this.env.TELEGRAM_CHAT_ID ?? "");
-    if (!expectedId || String(payload.chat_id ?? "") !== expectedId || String(payload.user_id ?? "") !== expectedId) {
-      return { ok: false, error: "Unauthorized" };
-    }
-
-    const timestamp = new Date().toISOString();
-    const item = {
-      id: "visual-test-" + crypto.randomUUID().slice(0, 8),
-      title: "Как проверить цифровой след компании с помощью OSINT",
-      category: "OSINT",
-      content: "ТЕСТОВАЯ ТЕМА: Как проверить цифровой след компании с помощью OSINT",
-      text_content: "Учебный материал для проверки визуального конвейера. Проверка цифрового следа компании включает анализ домена, публичных регистрационных сведений, связанных ресурсов и открытых корпоративных источников. Отдельные совпадения являются только индикаторами и требуют независимой проверки.",
-      is_test: true,
-      stage: "visual",
-      status: "generating_visual",
-      history: [],
-      created_at: timestamp,
-      updated_at: timestamp
-    };
-
-    await this.ctx.storage.transaction(async txn => {
-      await txn.put("item:" + item.id, item);
-      await this.addEvent(txn, {
-        item_id: item.id,
-        stage: "visual",
-        action: "visual_test_created",
-        user_id: String(payload.user_id ?? "")
-      });
-    });
-
-    await this.runVisualGeneration(item.id);
-    return { ok: true, status: "visual_test_started", item_id: item.id };
-  }
-
   // ==================================================
   // AI TEXT GENERATOR
   // ==================================================
@@ -1637,79 +1272,6 @@ export class ApprovalCoordinator {
   // ==================================================
   // VISUAL STYLE SETTINGS
   // ==================================================
-
-  getVisualStyleInstructions() {
-    return (
-      "УТВЕРЖДЁННАЯ ВИЗУАЛЬНАЯ СИСТЕМА OSINTNER — MODERN OSINT INVESTIGATIVE MEDIA / DIGITAL DETECTIVE / FORENSIC JOURNALISM / INTELLIGENCE BRIEFING. " +
-      "СТРОГО 2D: flat vector editorial illustration, clean SVG-like graphic design, flat poster art, geometric cut-paper shapes, crisp closed contours, uniform line weight, solid matte color fills. Treat the image as a professionally designed 2D vector poster, not as a rendered scene. " +
-      "ЗАПРЕЩЕНЫ ОБЪЁМ И СВЕТОТЕНЬ: никаких теней, падающих теней, градиентов, бликов, отражений, объёмного освещения, ambient occlusion, перспективного сокращения, глубины резкости, фасок, экструзии, 3D-форм, пластика, моделирования или псевдообъёмного затенения. Не имитировать предметную фотографию. " +
-      "Основные цвета: глубокий почти чёрный #0B0D0F и графитовый #15181B; светлые элементы #E7E9EA; вторичные серо-стальные #858B91; основной акцент #FF5A36; цвет проверки #A7D65C использовать редко и только для конкретного маркера верификации. " +
-      "Холодная тёмная редакционная атмосфера, серьёзный интеллектуальный тон, документальная точность, сдержанное напряжение без сенсационности. " +
-      "Изображение должно быть узнаваемой визуальной метафорой ИМЕННО указанной темы: извлеки главный объект, действие или взаимосвязь из текста материала и покажи их однозначно и предметно. Не используй абстрактные случайные символы, декоративные предметы или универсальные картинки про компьютеры, лупы и документы, если они не являются сутью темы. " +
-      "Композиция простая, собранная, с ясной визуальной иерархией и 1–3 смысловыми элементами; без фотоколлажа и визуального шума. " +
-      "Абсолютно запрещены любые буквы, цифры, слова, псевдотекст, подписи, логотипы, водяные знаки, бренд OSINTNER и случайные символы. Никаких текстовых элементов вообще. " +
-      "Исключить: реалистичные фотографии, фотореализм, 3D, пластик CGI, аниме, мультфильм, киберпанк, неон RGB, matrix rain, хакеры в капюшонах, голограммы, sci-fi HUD, дашборды, тёплую коричневую палитру, золотой свет, стоковую рекламу и декоративную перегруженность."
-    );
-  }
-
-  // ==================================================
-  // AI VISUAL CONCEPT GENERATOR
-  // ==================================================
-
-  async generateVisualBrief(item, rejectedVersions = item.rejected_visuals || []) {
-    const styleInstructions = this.getVisualStyleInstructions();
-    const rejectedVisualBlock = rejectedVersions.length
-      ? "\nОТКЛОНЁННЫЕ КОНЦЕПЦИИ — НЕ ПОВТОРЯТЬ: " + rejectedVersions.slice(-3).map(value => String(value).slice(0, 900)).join("\n")
-      : "";
-    const prompt =
-      "Ты арт-директор премиального расследовательского медиа OSINT Editorial. Подготовь план реальной генерации изображений.\n" +
-      "ТЕМА: " + item.title + "\nКАТЕГОРИЯ: " + item.category + "\nТЕКСТ: " + (item.text_content || item.content) + "\n\n" +
-      styleInstructions + "\n\n" +
-      "Создай строго ОДИН визуал для ОДНОГО поста Threads. Никаких каруселей, слайдов, серий и дополнительных изображений. " +
-      "Извлеки из темы и полного текста один центральный объект, процесс или причинно-следственную связь. Сформируй точную визуальную метафору, по которой без подписи понятно, о чём именно материал. В prompt назови ключевые объекты и их отношения; не подменяй тему универсальным изображением ноутбука, лупы, папки или абстрактной сети. " +
-      "Стиль — строгая плоская векторная редакционная графика OSINTNER: палитра #0B0D0F, #15181B, #E7E9EA, #858B91, акцент #FF5A36, редкий маркер проверки #A7D65C; геометрические формы, точные контуры, минимализм, холодная тёмная аналитическая атмосфера. " +
-      "Один вертикальный кадр 4:5, ясная композиция из 1–3 смысловых элементов, без текста, букв, цифр, псевдотекста, логотипов, водяных знаков и декоративного мусора. " +
-      "Верни один объект slides с title как кратким названием идеи, prompt как точным описанием именно тематической векторной сцены и alt_text как доступным описанием изображения. Не добавляй заголовок/подзаголовок для нанесения на изображение. " +
-      "Не выдумывай реальные документы, цифры, логотипы, интерфейсы, компании, доказательства или виновность." +
-      rejectedVisualBlock + "\n\n" +
-      'Верни только JSON без markdown: {"format":"single","concept":"...","rationale":"...","slides":[{"title":"...","prompt":"...","alt_text":"..."}]}.';
-    const generatePlan = async (correction = "") => {
-      const raw = await geminiGenerate(
-        this.env,
-        prompt + (correction ? " CORRECTION REQUIRED: " + correction : ""),
-        { task: "visual_brief", temperature: 0.45, maxOutputTokens: 2200 }
-      );
-      return parseVisualPlan(raw);
-    };
-    const validateRelevance = async plan => {
-      const reviewRaw = await geminiGenerate(
-        this.env,
-        "Ты независимый арт-директор и редактор OSINTNER. Проверь, действительно ли предлагаемая векторная иллюстрация изображает именно тему и смысл текста, а не случайный универсальный сюжет. " +
-        "Сопоставь заголовок, текст публикации, концепцию, prompt и alt_text. Отметь relevant=false, если отсутствует главный объект или действие темы, если визуал можно без изменений применить к десяткам несвязанных тем, если элементы не объясняют заявленный процесс или если сцена противоречит материалу. " +
-        "Положительный результат допустим только при очевидной предметной связи. Верни только JSON object с boolean key relevant и string key reason. " +
-        "ТЕМА: " + String(item.title || "") + " ТЕКСТ: " + String(item.text_content || item.content || "").slice(0, 3500) +
-        " ВИЗУАЛ: " + JSON.stringify({concept:plan.concept,rationale:plan.rationale,slide:plan.slides[0]}),
-        { task: "visual_relevance_check", temperature: 0.1, maxOutputTokens: 180 }
-      );
-      const first = reviewRaw.indexOf("{");
-      const last = reviewRaw.lastIndexOf("}");
-      if (first < 0 || last <= first) throw new Error("Visual relevance check returned invalid JSON");
-      return JSON.parse(reviewRaw.slice(first, last + 1));
-    };
-    let plan = await generatePlan();
-    let review = await validateRelevance(plan);
-    if (review.relevant !== true) {
-      plan = await generatePlan(String(review.reason || "Иллюстрация не раскрывает конкретную тему"));
-      review = await validateRelevance(plan);
-    }
-    if (review.relevant !== true) {
-      throw new Error("Visual concept failed topic relevance check: " + String(review.reason || "unrelated visual").slice(0, 300));
-    }
-    plan.concept = String(plan.concept || "").trim();
-    plan.rationale = String(plan.rationale || "").trim();
-    plan.relevance_check = "passed";
-    return plan;
-  }
 
   // ==================================================
   // GENERATION FAILURE HANDLER
@@ -1793,48 +1355,6 @@ export class ApprovalCoordinator {
   }
 
   // ==================================================
-  // ALTERNATIVE VISUAL ON REVISION
-  // ==================================================
-
-  async generateAlternativeVisual(itemId) {
-    const itemKey = `item:${itemId}`;
-    const item = await this.ctx.storage.get(itemKey);
-    if (!item || item.status !== "generating_alternative_visual") return { ok: false, skipped: true };
-    try {
-      const plan = await this.generateVisualBrief(item, Array.isArray(item.rejected_visuals) ? item.rejected_visuals : []);
-      const assets = await generateAndStoreVisualAssets(this.env, itemId, plan, item);
-      if (assets.length !== 1 || !item.text_content || [...String(item.text_content)].length > 500) {
-        throw new Error("A Threads post must contain exactly one image and one caption of no more than 500 characters");
-      }
-      const images = [{ ...assets[0], bytes: await this.env.EDITORIAL_DATA.get("social-image:" + assets[0].id, "arrayBuffer") }];
-      await telegramSendVisualPreview(this.env, this.env.TELEGRAM_CHAT_ID, images, String(item.text_content).trim());
-      await this.ctx.storage.transaction(async txn => {
-        const current = await txn.get(itemKey);
-        if (!current || current.status !== "generating_alternative_visual") return;
-        const timestamp = new Date().toISOString();
-        current.visual_content = formatVisualPlan(plan);
-        current.visual_plan = plan;
-        current.visual_assets = assets;
-        current.content = current.visual_content;
-        current.stage = "visual";
-        current.status = "pending";
-        current.approval_id = crypto.randomUUID();
-        current.updated_at = timestamp;
-        current.visual_generated_at = timestamp;
-        current.alternative_visual_count = Number(current.alternative_visual_count || 0) + 1;
-        await txn.put(itemKey, current);
-        await this.addEvent(txn, { item_id: current.id, stage: "visual", action: "ai_alternative_visual_generated", category: current.category });
-        await this.enqueue(txn, "sendMessage", approvalMessage(current, this.env.TELEGRAM_CHAT_ID));
-      });
-      return { ok: true };
-    } catch (error) {
-      console.error("Alternative visual generation failed:", error.message);
-      await this.markGenerationFailed(itemId, "generating_alternative_visual", "visual", error);
-      return { ok: false, error: "alternative_visual_generation_failed" };
-    }
-  }
-
-  // ==================================================
   // GENERATE TEXT AND MOVE TO TEXT APPROVAL
   // ==================================================
 
@@ -1896,47 +1416,6 @@ export class ApprovalCoordinator {
         "text",
         error
       );
-    }
-  }
-
-  // ==================================================
-  // GENERATE VISUAL AND MOVE TO VISUAL APPROVAL
-  // ==================================================
-
-  async runVisualGeneration(itemId) {
-    const itemKey = `item:${itemId}`;
-    try {
-      const sourceItem = await this.ctx.storage.get(itemKey);
-      if (!sourceItem) throw new Error("Material not found");
-      console.log("AI VISUAL GENERATION STARTED:", itemId);
-      const plan = await this.generateVisualBrief(sourceItem, Array.isArray(sourceItem.rejected_visuals) ? sourceItem.rejected_visuals : []);
-      const assets = await generateAndStoreVisualAssets(this.env, itemId, plan, sourceItem);
-      if (assets.length !== 1 || !sourceItem.text_content || [...String(sourceItem.text_content)].length > 500) {
-        throw new Error("A Threads post must contain exactly one image and one caption of no more than 500 characters");
-      }
-      const images = [{ ...assets[0], bytes: await this.env.EDITORIAL_DATA.get("social-image:" + assets[0].id, "arrayBuffer") }];
-      await telegramSendVisualPreview(this.env, this.env.TELEGRAM_CHAT_ID, images, String(sourceItem.text_content).trim());
-      await this.ctx.storage.transaction(async txn => {
-        const item = await txn.get(itemKey);
-        if (!item || item.status !== "generating_visual") return;
-        const timestamp = new Date().toISOString();
-        item.visual_content = formatVisualPlan(plan);
-        item.visual_plan = plan;
-        item.visual_assets = assets;
-        item.content = item.visual_content;
-        item.stage = "visual";
-        item.status = "pending";
-        item.approval_id = crypto.randomUUID();
-        item.updated_at = timestamp;
-        item.visual_generated_at = timestamp;
-        await txn.put(itemKey, item);
-        await this.addEvent(txn, { item_id: item.id, stage: "visual", action: "ai_visual_generated", category: item.category });
-        await this.enqueue(txn, "sendMessage", approvalMessage(item, this.env.TELEGRAM_CHAT_ID));
-      });
-      console.log("AI VISUAL GENERATION COMPLETED:", itemId);
-    } catch (error) {
-      console.error("AI VISUAL GENERATION FAILED:", error.message);
-      await this.markGenerationFailed(itemId, "generating_visual", "visual", error);
     }
   }
 
@@ -2075,13 +1554,6 @@ export class ApprovalCoordinator {
           item.status = "generating_text";
           delete item.approval_id;
 
-        } else if (
-          currentStage === "text" &&
-          !item.is_test
-        ) {
-          item.status = "generating_visual";
-          delete item.approval_id;
-
         } else {
           item.stage = STAGES[index + 1];
           item.status = "pending";
@@ -2109,18 +1581,10 @@ export class ApprovalCoordinator {
           item.rejected_texts.push(String(item.text_content || "").slice(0, 5000));
           item.rejected_texts = item.rejected_texts.slice(-5);
           item.status = "generating_alternative_text";
-        } else if (currentStage === "visual") {
-          item.rejected_visuals = Array.isArray(item.rejected_visuals) ? item.rejected_visuals : [];
-          item.rejected_visuals.push(String(item.visual_content || "").slice(0, 4000));
-          item.rejected_visuals = item.rejected_visuals.slice(-5);
-          item.status = "generating_alternative_visual";
         } else if (currentStage === "final") {
           item.rejected_texts = Array.isArray(item.rejected_texts) ? item.rejected_texts : [];
-          item.rejected_visuals = Array.isArray(item.rejected_visuals) ? item.rejected_visuals : [];
           if (item.text_content) item.rejected_texts.push(String(item.text_content).slice(0, 5000));
-          if (item.visual_content) item.rejected_visuals.push(String(item.visual_content).slice(0, 4000));
           item.rejected_texts = item.rejected_texts.slice(-5);
-          item.rejected_visuals = item.rejected_visuals.slice(-5);
           item.status = "generating_alternative_text";
         } else {
           item.status = "revision_requested";
@@ -2153,7 +1617,7 @@ export class ApprovalCoordinator {
                   : currentStage === "topic" && !item.is_test
                   ? "Тема одобрена. Начинаю подготовку текста..."
                   : currentStage === "text" && !item.is_test
-                    ? "Текст одобрен. Начинаю подготовку визуальной концепции..."
+                    ? "Текст одобрен. Передаю материал на финальное согласование..."
                     : `Этап «${STAGE_NAMES[currentStage]}» одобрен.`
             )
           : (
@@ -2163,8 +1627,6 @@ export class ApprovalCoordinator {
                   ? "Материал отправлен на доработку. Подготавливаю другой вариант темы..."
                   : currentStage === "text"
                     ? "Материал отправлен на доработку. Подготавливаю другую редакцию текста..."
-                    : currentStage === "visual"
-                      ? "Материал отправлен на доработку. Разрабатываю другую визуальную концепцию..."
                       : currentStage === "final"
                         ? "Материал отправлен на доработку. Подготавливаю новую редакцию..."
                         : "Материал отправлен на доработку. Подготавливаю другой вариант."
@@ -2232,11 +1694,6 @@ export class ApprovalCoordinator {
       await this.runTextGeneration(result.item_id);
     }
 
-    if (result.status === "generating_visual") {
-      await this.flushOutbox();
-      await this.runVisualGeneration(result.item_id);
-    }
-
     if (result.status === "generating_alternative_topic") {
       await this.flushOutbox();
       await this.generateAlternativeTopic(result.item_id);
@@ -2245,11 +1702,6 @@ export class ApprovalCoordinator {
     if (result.status === "generating_alternative_text") {
       await this.flushOutbox();
       await this.generateAlternativeText(result.item_id);
-    }
-
-    if (result.status === "generating_alternative_visual") {
-      await this.flushOutbox();
-      await this.generateAlternativeVisual(result.item_id);
     }
 
     if (result.status === "publication_approved") {
@@ -2276,12 +1728,12 @@ export class ApprovalCoordinator {
         await this.ctx.storage.put(itemKey, {
           ...pausedItem,
           threads_publication_status: "paused",
-          threads_publication_error: "Publishing is paused until visual QA is approved"
+          threads_publication_error: "Text-only publishing is awaiting end-to-end verification"
         });
       }
       await telegram(this.env, "sendMessage", {
         chat_id: this.env.TELEGRAM_CHAT_ID,
-        text: "Публикация в Threads временно заблокирована до успешного прохождения визуального контроля OSINTNER. Материал сохранён, ничего не опубликовано: " + itemId
+        text: "Публикация в Threads пока приостановлена до завершения тестового текстового цикла. Материал сохранён, ничего не опубликовано: " + itemId
       });
       return { ok: false, paused: true };
     }
@@ -2343,25 +1795,13 @@ export class ApprovalCoordinator {
       return { ok: false, error: "Threads caption exceeds 500-character limit" };
     }
 
-    const image = Array.isArray(item.visual_assets) ? item.visual_assets[0] : null;
-    if (!image?.url || !/^https:\/\//i.test(image.url)) {
-      await this.ctx.storage.put(itemKey, { ...item, threads_publication_status: "failed", threads_publication_error: "Approved item has no public image asset" });
-      await telegram(this.env, "sendMessage", {
-        chat_id: this.env.TELEGRAM_CHAT_ID,
-        text: "Публикация остановлена: у материала нет одного публичного изображения. Ничего не опубликовано. Материал: " + itemId
-      });
-      return { ok: false, error: "Approved item has no public image asset" };
-    }
-
     try {
       let containerId = reservation.resume ? String(item.threads_container_id) : "";
       if (!containerId) {
         const createUrl = new URL(`https://graph.threads.net/v1.0/${encodeURIComponent(token.user_id)}/threads`);
         const createForm = new URLSearchParams({
-          media_type: "IMAGE",
-          image_url: image.url,
+          media_type: "TEXT",
           text: fullText,
-          alt_text: String(image.alt_text || item.title || "Редакционная векторная иллюстрация OSINTNER").slice(0, 1000),
           access_token: token.access_token
         });
         const createResponse = await fetch(createUrl.toString(), {
@@ -2371,7 +1811,7 @@ export class ApprovalCoordinator {
         });
         const createResult = await createResponse.json().catch(() => ({}));
         if (!createResponse.ok || !createResult.id) {
-          const message = createResult.error?.message || "Threads image container creation failed (" + createResponse.status + ")";
+          const message = createResult.error?.message || "Threads text container creation failed (" + createResponse.status + ")";
           await this.ctx.storage.put(itemKey, {
             ...item,
             threads_publication_status: "create_unknown",
@@ -2430,11 +1870,11 @@ export class ApprovalCoordinator {
           ...item,
           threads_publication_status: "created",
           threads_container_id: containerId,
-          threads_publication_error: "Image container is still processing; retry can resume this container"
+          threads_publication_error: "Text container is still processing; retry can resume this container"
         });
         await telegram(this.env, "sendMessage", {
           chat_id: this.env.TELEGRAM_CHAT_ID,
-          text: "Threads ещё обрабатывает изображение. Контейнер сохранён. Через минуту отправь команду /publish_retry " + itemId + " — повторно будет проверен тот же контейнер, без создания дубля."
+          text: "Threads ещё обрабатывает текстовый пост. Контейнер сохранён. Через минуту отправь команду /publish_retry " + itemId + " — повторно будет проверен тот же контейнер, без создания дубля."
         });
         return { ok: true, pending_processing: true, container_id: containerId };
       }
