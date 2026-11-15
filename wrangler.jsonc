@@ -6,7 +6,7 @@
   "workers_dev": true,
   "vars": {
     "TELEGRAM_CHAT_ID": "1664476273",
-    "THREADS_PUBLISHING_ENABLED": "false"
+    "THREADS_PUBLISHING_ENABLED": "true"
   },
   "durable_objects": {
     "bindings": [
