@@ -259,6 +259,18 @@ async function sendMainMenu(env, chatId, userId, messageId = null, welcome = fal
     "Ежечасный юмор: " + (enabled ? "ВКЛЮЧЁН" : "ВЫКЛЮЧЕН") + "\n" +
     "Редакционные публикации: 09:00, 12:00, 15:00, 18:00 и 21:00 — с финальным одобрением.\n\n" +
     "Выбери действие:";
+  if (!messageId) {
+    await telegram(env, "sendMessage", {
+      chat_id: chatId,
+      text: "Кнопка главного меню закреплена внизу чата. Нажми её в любой момент, чтобы открыть команды.",
+      reply_markup: {
+        keyboard: [[{ text: "📋 Главное меню" }]],
+        resize_keyboard: true,
+        is_persistent: true,
+        input_field_placeholder: "Выбери «Главное меню» или введи команду"
+      }
+    });
+  }
   const payload = { chat_id: chatId, text, reply_markup: menuKeyboard(enabled) };
   if (messageId) {
     payload.message_id = messageId;
@@ -639,6 +651,10 @@ export default {
 
         if (command === "/start") {
           await sendMainMenu(env, chatId, userId, null, true);
+        }
+
+        else if (String(message.text || "").trim() === "📋 Главное меню") {
+          await sendMainMenu(env, chatId, userId);
         }
 
         else if (command === "/menu") {
