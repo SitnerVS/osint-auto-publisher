@@ -325,7 +325,7 @@ const generationPrompt = [
     ].join("\\n");
     if (typeof deps.tavilySearch !== "function") throw new Error("Внешний поиск фактов не подключён. Нужен TAVILY_API_KEY в Cloudflare Worker Secrets.");
     const searchResults = await deps.tavilySearch(env, "well documented interesting facts nature animals astronomy history geography science technology university museum government research");
-    const groundedSources = [...new Set((searchResults || []).map(item => String(item.url || "").trim()).filter(url => /^https?:\\/\\//i.test(url)))];
+    const groundedSources = [...new Set((searchResults || []).map(item => String(item.url || "").trim()).filter(url => url.startsWith("https://") || url.startsWith("http://")))];
     if (groundedSources.length < 10) throw new Error("Внешний поиск вернул меньше десяти источников; подготовка остановлена.");
     const sourceEvidence = (searchResults || []).map((item, index) =>
       "[" + (index + 1) + "] " + String(item.title || "") + "\\nURL: " + String(item.url || "") + "\\n" + String(item.content || "").slice(0, 1100)
@@ -437,8 +437,8 @@ const generationPrompt = [
           const verifiedDomains = new Set(verifiedUrls.map(url => {
             try { return new URL(url).hostname.toLowerCase().replace(/^www\./u, ""); } catch (_) { return ""; }
           }).filter(Boolean));
-          if (verifiedDomains.size < 2) issues.push("Вариант " + (index + 1) + ": нужны два независимых авторитетных источника из результатов Google Search Gemini.");
-          if (item.source_urls.some(url => !groundedSources.includes(url))) issues.push("Вариант " + (index + 1) + ": ссылка не подтверждена поиском Google Gemini.");
+          if (verifiedDomains.size < 2) issues.push("Вариант " + (index + 1) + ": нужны два независимых авторитетных источника из результатов Tavily Search.");
+          if (item.source_urls.some(url => !groundedSources.includes(url))) issues.push("Вариант " + (index + 1) + ": ссылка отсутствует в результатах Tavily Search.");
         });
         return issues;
       };
