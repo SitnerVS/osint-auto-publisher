@@ -505,6 +505,27 @@ export default {
           });
         }
 
+        else if (command === "/menu") {
+          const status = await callCoordinator(env, "/hourly-settings", {
+            action: "get",
+            user_id: userId,
+            chat_id: chatId
+          });
+          const enabled = status.enabled === true;
+          await telegram(env, "sendMessage", {
+            chat_id: chatId,
+            text: "OSINTNER — УПРАВЛЕНИЕ РУБРИКАМИ\\n\\n" +
+              "Ежечасная юмористическая рубрика: " + (enabled ? "ВКЛЮЧЕНА" : "ОТКЛЮЧЕНА") + "\\n" +
+              "Редакционные публикации: по расписанию, с обязательным финальным одобрением.",
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: enabled ? "🔴 Отключить ежечасную рубрику" : "🟢 Включить ежечасную рубрику", callback_data: "hourly_toggle" }],
+                [{ text: "🔄 Обновить меню", callback_data: "hourly_refresh" }]
+              ]
+            }
+          });
+        }
+
         else if (command === "/id") {
           await telegram(env, "sendMessage", {
             chat_id: chatId,
@@ -657,10 +678,52 @@ export default {
 
       if (update.callback_query) {
         console.log("Callback query received");
+        const callback = update.callback_query;
+        const callbackChat = callback.message?.chat;
+        const callbackUserId = String(callback.from?.id || "");
+        const callbackChatId = String(callbackChat?.id || "");
+        const callbackAllowed = isAuthorizedChat(callbackChat, env) &&
+          callbackUserId === String(env.TELEGRAM_CHAT_ID || "");
 
-        await callCoordinator(env, "/callback", {
-          callback: update.callback_query
-        });
+        if (callback.data === "hourly_toggle" || callback.data === "hourly_refresh") {
+          if (!callbackAllowed) {
+            await telegram(env, "answerCallbackQuery", {
+              callback_query_id: callback.id,
+              text: "Нет доступа",
+              show_alert: true
+            });
+          } else {
+            const status = await callCoordinator(env, "/hourly-settings", {
+              action: callback.data === "hourly_toggle" ? "toggle" : "get",
+              user_id: callbackUserId,
+              chat_id: callbackChatId
+            });
+            const enabled = status.enabled === true;
+            await telegram(env, "answerCallbackQuery", {
+              callback_query_id: callback.id,
+              text: callback.data === "hourly_toggle"
+                ? (enabled ? "Ежечасная рубрика включена" : "Ежечасная рубрика отключена")
+                : "Статус обновлён"
+            });
+            await telegram(env, "editMessageText", {
+              chat_id: callbackChatId,
+              message_id: callback.message.message_id,
+              text: "OSINTNER — УПРАВЛЕНИЕ РУБРИКАМИ\\n\\n" +
+                "Ежечасная юмористическая рубрика: " + (enabled ? "ВКЛЮЧЕНА" : "ОТКЛЮЧЕНА") + "\\n" +
+                "Редакционные публикации: по расписанию, с обязательным финальным одобрением.",
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: enabled ? "🔴 Отключить ежечасную рубрику" : "🟢 Включить ежечасную рубрику", callback_data: "hourly_toggle" }],
+                  [{ text: "🔄 Обновить меню", callback_data: "hourly_refresh" }]
+                ]
+              }
+            });
+          }
+        } else {
+          await callCoordinator(env, "/callback", {
+            callback
+          });
+        }
       }
 
       return new Response("OK");
@@ -744,7 +807,8 @@ export class ApprovalCoordinator {
       path !== "/threads/oauth/save-state" &&
       path !== "/threads/oauth/consume-state" &&
       path !== "/threads/oauth/save-token" &&
-      path !== "/hourly-trend"
+      path !== "/hourly-trend" &&
+      path !== "/hourly-settings"
     ) {
       return new Response("Not found", {
         status: 404
@@ -831,8 +895,27 @@ export class ApprovalCoordinator {
           });
           result = { ok: true };
         }
+      } else if (path === "/hourly-settings") {
+        const expectedId = String(this.env.TELEGRAM_CHAT_ID || "");
+        if (String(payload.chat_id || "") !== expectedId || String(payload.user_id || "") !== expectedId) {
+          result = { ok: false, error: "Unauthorized" };
+        } else {
+          const key = "social:hourly:enabled";
+          let enabled = await this.ctx.storage.get(key);
+          if (enabled === undefined || enabled === null) enabled = true;
+          if (payload.action === "toggle") {
+            enabled = !enabled;
+            await this.ctx.storage.put(key, enabled);
+          }
+          result = { ok: true, enabled: enabled === true };
+        }
       } else if (path === "/hourly-trend") {
-        result = await runHourlyTrend(this, payload, { geminiGenerate, telegram });
+        const hourlyEnabled = await this.ctx.storage.get("social:hourly:enabled");
+        if (hourlyEnabled === false) {
+          result = { ok: true, skipped: true, reason: "hourly_rubric_disabled" };
+        } else {
+          result = await runHourlyTrend(this, payload, { geminiGenerate, telegram });
+        }
       } else {
         result = await this.handleCallback(payload);
       }
