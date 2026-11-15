@@ -340,7 +340,30 @@ const generationPrompt =
       });
       return { ok: true, skipped: true, reason: "unknown_trend_id" };
     }
-    const localFailure = localSafetyFailure(text);
+    const editorPrompt =
+      "Ты — независимый редактор короткой русскоязычной сатиры. Исправь черновик так, чтобы это была настоящая шутка, а не случайная ассоциация. " +
+      "Тренд: " + JSON.stringify(selectedTrend.name) + ". Черновик: " + JSON.stringify(finalText) + ". " +
+      "Одна короткая фраза, естественный разговорный русский. Оставь только то, что связано с конкретным смыслом тренда. " +
+      "Найди узнаваемое противоречие, человеческую реакцию, абсурд официальной формулировки или точное бытовое следствие. Панчлайн должен логично вытекать из захода и неожиданно его переосмысливать. " +
+      "Удали случайные ассоциации, бессмысленный сюрреализм, несвязанные темы, искусственные метафоры, банальности и нейросетевые каламбуры. Провокационность должна быть меткой, а не просто грубой. " +
+      "Не выдумывай факты о событии. Если черновик нельзя спасти, создай другой угол только на основе названия тренда; если это невозможно, верни skip=true. " +
+      'Верни строго JSON: {"skip":true,"reason":"..."} либо {"skip":false,"text":"одна короткая шутка"}.';
+    const editedRaw = await deps.geminiGenerate(env, editorPrompt, {
+      task: "hourly_social_editor",
+      temperature: 0.75,
+      maxOutputTokens: 180
+    });
+    const edited = parseJsonObject(editedRaw);
+    if (edited.skip === true || !normalizeText(edited.text)) {
+      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "editor_rejected", created_at: new Date().toISOString() });
+      await deps.telegram(env, "sendMessage", {
+        chat_id: env.TELEGRAM_CHAT_ID,
+        text: "Тренд не дал достаточно хорошей короткой шутки. Публикацию пропустил."
+      });
+      return { ok: true, skipped: true, reason: "editor_rejected" };
+    }
+    const finalText = normalizeText(edited.text);
+    const localFailure = localSafetyFailure(finalText);
     if (localFailure) {
       if (!preview) await storage.put(slotKey, { status: "skipped", reason: "local_safety_filter", detail: localFailure, created_at: new Date().toISOString() });
       await deps.telegram(env, "sendMessage", {
