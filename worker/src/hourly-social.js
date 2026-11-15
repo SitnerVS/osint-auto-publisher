@@ -323,31 +323,40 @@ const generationPrompt = [
       "Верни только корректный JSON: {\"variants\":[{\"text\":\"Факт не более двенадцати слов\",\"source_urls\":[\"точный URL 1\",\"точный URL 2\"]}]}. Ровно пять объектов, у каждого минимум два URL из реально использованных результатов Google Search Gemini.",
       "Не добавляй хештеги, упоминания, эмодзи, ссылки в текст факта или латинские слова. Если кандидат не подтверждается, замени его другим, пока не соберёшь пять проверяемых фактов. Не выдумывай факты ради выполнения задания."
     ].join("\\n");
+    if (typeof deps.tavilySearch !== "function") throw new Error("Внешний поиск фактов не подключён. Нужен TAVILY_API_KEY в Cloudflare Worker Secrets.");
+    const searchResults = await deps.tavilySearch(env, "well documented interesting facts nature animals astronomy history geography science technology university museum government research");
+    const groundedSources = [...new Set((searchResults || []).map(item => String(item.url || "").trim()).filter(url => /^https?:\\/\\//i.test(url)))];
+    if (groundedSources.length < 10) throw new Error("Внешний поиск вернул меньше десяти источников; подготовка остановлена.");
+    const sourceEvidence = (searchResults || []).map((item, index) =>
+      "[" + (index + 1) + "] " + String(item.title || "") + "\\nURL: " + String(item.url || "") + "\\n" + String(item.content || "").slice(0, 1100)
+    ).join("\\n\\n");
+    const groundedPrompt = generationPrompt
+      .replaceAll("Google Search через Gemini", "независимый внешний веб-поиск Tavily")
+      .replaceAll("Google Search Gemini", "Tavily")
+      + "\\n\\nИСТОЧНИКИ И ФРАГМЕНТЫ, ПОЛУЧЕННЫЕ ЧЕРЕЗ ВНЕШНИЙ ПОИСК (используй только их; URL копируй дословно):\\n"
+      + sourceEvidence;
     let rawResponse = "";
-    let groundedSources = [];
     if (preview) {
       if (typeof deps.geminiGenerate !== "function") throw new Error("Не подключён Gemini с поиском Google для проверки фактов.");
-      const grounded = await deps.geminiGenerate(env, generationPrompt, {
+      const grounded = await deps.geminiGenerate(env, groundedPrompt, {
         task: "hourly_verified_facts_generation",
-        model: "gemini-3.1-flash-lite",
-        fallbackModels: ["gemini-3.5-flash-lite"],
+        model: "gemini-3.5-flash-lite",
+        fallbackModels: ["gemini-3.1-flash-lite"],
         maxAttempts: 1,
         temperature: 0.2,
         maxOutputTokens: 1400,
-        googleSearch: true,
         returnMetadata: true
       });
       rawResponse = String(grounded?.text || "").trim();
       groundedSources = Array.isArray(grounded?.sources) ? grounded.sources : [];
     } else {
-      const generatedRaw = await deps.geminiGenerate(env, generationPrompt, {
+      const generatedRaw = await deps.geminiGenerate(env, groundedPrompt, {
         task: "hourly_fact_generation",
-        model: "gemini-3.1-flash-lite",
-        fallbackModels: ["gemini-3.5-flash-lite"],
+        model: "gemini-3.5-flash-lite",
+        fallbackModels: ["gemini-3.1-flash-lite"],
         maxAttempts: 1,
         temperature: 0.2,
         maxOutputTokens: 800,
-        googleSearch: true
       });
       rawResponse = String(generatedRaw || "").trim();
     }
@@ -365,20 +374,18 @@ const generationPrompt = [
           "Для каждого факта обязательны два независимых точных URL из результатов Google Search Gemini. Используй официальные государственные и университетские сайты, научные журналы, музеи и авторитетные энциклопедии. Не используй Википедию, форумы, рекламные сайты и непроверенные блоги.",
           "Если кандидат не подтверждается двумя источниками, замени его другим. Не требуй исключительной редкости. Не выдумывай факты, детали и ссылки.",
           "Каждый текст — одно утвердительное предложение на русском языке, не более 12 слов. Без вопросов, ссылок в тексте, хештегов, упоминаний и эмодзи.",
-          "Верни только JSON: {\"variants\":[{\"text\":\"...\",\"source_urls\":[\"URL 1\",\"URL 2\"]}]}. Ровно пять объектов. Никаких пояснений или отказов."
+          "Верни только JSON: {\"variants\":[{\"text\":\"...\",\"source_urls\":[\"URL 1\",\"URL 2\"]}]}. Ровно пять объектов. Никаких пояснений или отказов.\\n\\nИСТОЧНИКИ:\\n" + sourceEvidence
         ].join("\\n");
         const recovered = await deps.geminiGenerate(env, recoveryPrompt, {
           task: "hourly_verified_facts_recovery",
-          model: "gemini-3.1-flash-lite",
-        fallbackModels: ["gemini-3.5-flash-lite"],
+          model: "gemini-3.5-flash-lite",
+        fallbackModels: ["gemini-3.1-flash-lite"],
           maxAttempts: 1,
           temperature: 0.2,
           maxOutputTokens: 1400,
-          googleSearch: true,
-          returnMetadata: true
+            returnMetadata: true
         });
         rawResponse = String(recovered?.text || "").trim();
-        groundedSources = Array.isArray(recovered?.sources) ? recovered.sources : [];
         try {
           previewData = parsePreviewVariants(rawResponse);
         } catch (recoveryError) {
@@ -439,18 +446,16 @@ const generationPrompt = [
       let issues = validationIssues(variants);
       if (issues.length) {
         console.warn("Hourly preview validation failed; requesting one repair pass:", issues);
-        const repairPrompt = generationPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ФАКТЧЕК. Подготовь заново ровно пять фактов и укажи только реальные source_urls из Google Search Gemini. Исправь ошибки: " + issues.join(" ") + " Не выдумывай ссылки и утверждения.";
+        const repairPrompt = groundedPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ФАКТЧЕК. Подготовь заново ровно пять фактов и укажи только реальные source_urls из Google Search Gemini. Исправь ошибки: " + issues.join(" ") + " Не выдумывай ссылки и утверждения.";
         const repairedRaw = await deps.geminiGenerate(env, repairPrompt, {
           task: "hourly_verified_facts_recheck",
-          model: "gemini-3.1-flash-lite",
-        fallbackModels: ["gemini-3.5-flash-lite"],
+          model: "gemini-3.5-flash-lite",
+        fallbackModels: ["gemini-3.1-flash-lite"],
           maxAttempts: 1,
           temperature: 0.1,
           maxOutputTokens: 1400,
-          googleSearch: true,
-          returnMetadata: true
+            returnMetadata: true
         });
-        groundedSources = Array.isArray(repairedRaw?.sources) ? repairedRaw.sources : [];
         try {
           const repairedData = parsePreviewVariants(String(repairedRaw?.text || ""));
           rawVariants = Array.isArray(repairedData.variants) ? repairedData.variants : [];
