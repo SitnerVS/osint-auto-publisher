@@ -464,12 +464,13 @@ async function runMenuAction(env, action, userId, chatId) {
     if (action === "hourly_start") {
       await callCoordinator(env, "/hourly-settings", { action: "enable", user_id: userId, chat_id: chatId });
     }
-    await telegram(env, "sendMessage", { chat_id: chatId, text: "Готовлю новую юмористическую публикацию вне очереди. Проверю тренды и текст перед отправкой..." });
     const result = await callCoordinator(env, "/hourly-trend", {
-      scheduled_at: Date.now(), manual: true, force_manual: true, manual_id: crypto.randomUUID()
+      scheduled_at: Date.now(), manual: true, preview: true
     });
-    if (result.skipped || result.failed || !result.ok) {
-      await telegram(env, "sendMessage", { chat_id: chatId, text: "Публикация не выполнена. Причина: " + String(result.reason || result.error || "подходящий безопасный тренд не найден").slice(0, 700) });
+    if (result.preview && result.session_id) {
+      await telegram(env, "sendMessage", hourlyVariantsPayload(chatId, result));
+    } else {
+      await telegram(env, "sendMessage", { chat_id: chatId, text: "Не удалось подготовить пятёрку: " + String(result.reason || result.error || "неизвестная ошибка") });
     }
     return;
   }
@@ -872,94 +873,21 @@ export default {
         }
 
         else if (command === "/hourly_start") {
-          await telegram(env, "sendMessage", {
-            chat_id: chatId,
-            text: "Включаю автоматическую ежечасную рубрику и запускаю первую публикацию. Текст пройдёт проверки безопасности перед отправкой в Threads..."
-          });
-          try {
-            const settings = await callCoordinator(env, "/hourly-settings", {
-              action: "enable",
-              user_id: userId,
-              chat_id: chatId
-            });
-            if (!settings.ok || settings.enabled !== true) {
-              throw new Error(settings.error || "Не удалось включить ежечасную рубрику");
-            }
-            const result = await callCoordinator(env, "/hourly-trend", {
-              scheduled_at: Date.now(),
-              manual: true,
-              force_manual: true,
-              manual_id: crypto.randomUUID()
-            });
-            if (result.skipped) {
-              const reasons = {
-                threads_publishing_disabled: "Публикации Threads отключены в настройках Worker.",
-                hourly_rubric_disabled: "Ежечасная рубрика отключена.",
-                slot_already_processed: "В этом часовом слоте уже была попытка запуска. Повторную публикацию не выполнял.",
-                slot_already_published: "В этом часовом слоте пост уже опубликован. Дубликат заблокирован.",
-                slot_in_progress: "Запуск этого часового слота ещё выполняется. Подожди до 10 минут."
-              };
-              await telegram(env, "sendMessage", {
-                chat_id: chatId,
-                text: "Ежечасная рубрика включена, но первая публикация пропущена.\nПричина: " +
-                  (reasons[result.reason] || String(result.reason || "подходящий безопасный тренд не найден"))
-              });
-            } else if (result.failed || !result.ok) {
-              await telegram(env, "sendMessage", {
-                chat_id: chatId,
-                text: "Ежечасная рубрика включена, но первая публикация не состоялась.\nПричина: " +
-                  String(result.error || "ошибка выполнения").slice(0, 700)
-              });
-            }
-          } catch (error) {
-            await telegram(env, "sendMessage", {
-              chat_id: chatId,
-              text: "Не удалось включить и запустить ежечасную рубрику.\nПричина: " +
-                String(error.message || error).slice(0, 700)
-            });
+          const settings = await callCoordinator(env, "/hourly-settings", { action: "enable", user_id: userId, chat_id: chatId });
+          await telegram(env, "sendMessage", { chat_id: chatId, text: settings.enabled
+            ? "Ежечасная рубрика включена. Первая пятёрка готовится; публикация — только после твоего выбора."
+            : "Не удалось включить ежечасную рубрику." });
+          if (settings.enabled) {
+            const result = await callCoordinator(env, "/hourly-trend", { scheduled_at: Date.now(), manual: true, preview: true });
+            if (result.preview && result.session_id) await telegram(env, "sendMessage", hourlyVariantsPayload(chatId, result));
+            else await telegram(env, "sendMessage", { chat_id: chatId, text: "Не удалось подготовить пятёрку: " + String(result.reason || result.error || "неизвестная ошибка") });
           }
         }
 
         else if (command === "/hourly_now") {
-          await telegram(env, "sendMessage", {
-            chat_id: chatId,
-            text: "Запускаю ежечасную рубрику прямо сейчас. Проверю тренды, подготовлю и проверю текст перед публикацией..."
-          });
-          try {
-            const result = await callCoordinator(env, "/hourly-trend", {
-              scheduled_at: Date.now(),
-              manual: true,
-              force_manual: true,
-              manual_id: crypto.randomUUID()
-            });
-            if (result.skipped) {
-              const reasons = {
-                threads_publishing_disabled: "Публикации Threads отключены в настройках Worker.",
-                hourly_rubric_disabled: "Ежечасная рубрика сейчас отключена. Включи её через /menu.",
-                slot_already_processed: "В этом часовом слоте уже была попытка запуска. Повторный запуск доступен после проверки результата.",
-                slot_already_published: "В этом часовом слоте пост уже опубликован. Повторная публикация заблокирована.",
-                slot_in_progress: "Запуск этого часового слота ещё выполняется. Подожди до 10 минут и проверь снова."
-              };
-              await telegram(env, "sendMessage", {
-                chat_id: chatId,
-                text: "Ежечасная рубрика не запущена.\nПричина: " +
-                  (reasons[result.reason] || String(result.reason || "причина не указана"))
-              });
-            } else if (!result.ok) {
-              await telegram(env, "sendMessage", {
-                chat_id: chatId,
-                text: "Не удалось запустить ежечасную рубрику.\nПричина: " +
-                  String(result.error || "неизвестная ошибка").slice(0, 700)
-              });
-            }
-          } catch (error) {
-            console.error("Manual hourly run failed:", error.message, error.stack || "");
-            await telegram(env, "sendMessage", {
-              chat_id: chatId,
-              text: "Ошибка запуска ежечасной рубрики.\nПричина: " +
-                String(error.message || error).slice(0, 700)
-            });
-          }
+          const result = await callCoordinator(env, "/hourly-trend", { scheduled_at: Date.now(), manual: true, preview: true });
+          if (result.preview && result.session_id) await telegram(env, "sendMessage", hourlyVariantsPayload(chatId, result));
+          else await telegram(env, "sendMessage", { chat_id: chatId, text: "Не удалось подготовить пятёрку: " + String(result.reason || result.error || "неизвестная ошибка") });
         }
 
         else if (command === "/threads_trends_test") {
