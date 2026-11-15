@@ -423,7 +423,7 @@ async function sendMainMenu(env, chatId, userId, messageId = null, welcome = fal
 function hourlyVariantsPayload(chatId, result, messageId = null) {
   const lines = (result.variants || []).map((item, index) => {
     const source = Array.isArray(item.source_urls) && item.source_urls.length
-      ? "\\nИсточник: " + item.source_urls[0]
+      ? "\nИсточник: " + item.source_urls[0]
       : "";
     return (index + 1) + ". " + item.text + source;
   }).join("\n\n");
@@ -1082,7 +1082,7 @@ export default {
               "/test — тест согласования без публикации\n" +
               "/hourly_now — факты вне очереди\n" +
               "/hourly_start — включить автоподборку фактов и запустить\n" +
-              "/hourly_preview — предпросмотр без публикации\n" +
+              "/hourly_preview — предпросмотр фактов без публикации\n" +
               "/threads_status — статус подключения Threads\n" +
               "/threads_publish_check — проверка разрешений\n" +
               "/threads_trends_test — проверка трендов\n" +
@@ -1240,14 +1240,14 @@ export default {
           action: "get", user_id: env.TELEGRAM_CHAT_ID, chat_id: env.TELEGRAM_CHAT_ID
         });
         if (hourlyState.active) {
-          console.log("Hourly humor is awaiting the user's choice:", hourlyState.active.session_id);
+          console.log("Hourly facts are awaiting the user's choice:", hourlyState.active.session_id);
         } else if (localTime.endsWith(":00") && hourlySettings.enabled === true) {
           const hourlyResult = await callCoordinator(env, "/hourly-trend", {
             scheduled_at: controller.scheduledTime, manual: true, preview: true
           });
           if (hourlyResult.preview && hourlyResult.session_id) {
             await telegram(env, "sendMessage", hourlyVariantsPayload(env.TELEGRAM_CHAT_ID, hourlyResult));
-            console.log("Hourly humor options sent for approval:", hourlyResult.session_id);
+            console.log("Hourly fact options sent for approval:", hourlyResult.session_id);
           } else {
             await telegram(env, "sendMessage", {
               chat_id: env.TELEGRAM_CHAT_ID,
