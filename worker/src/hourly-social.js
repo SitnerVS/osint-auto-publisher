@@ -90,7 +90,8 @@ export async function generateHumorVariants(env, topic, previousTexts, geminiGen
   const raw = await geminiGenerate(env, prompt, {
     task: "manual_humor_variants",
     temperature: 0.95,
-    maxOutputTokens: 1200
+    maxOutputTokens: 1800,
+    responseMimeType: "application/json"
   });
   const parsed = parseJsonObject(raw);
   if (!Array.isArray(parsed.variants) || parsed.variants.length < 1 || parsed.variants.length > 5) {
