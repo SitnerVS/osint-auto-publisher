@@ -937,18 +937,20 @@ export class ApprovalCoordinator {
                   ].filter(Boolean).join("; ")
                 });
               } else {
-                const raw = Array.isArray(trendsResult.data)
-                  ? trendsResult.data
-                  : Array.isArray(trendsResult.trending_topics)
-                    ? trendsResult.trending_topics
-                    : [];
+                const raw = Array.isArray(trendsResult.trends)
+                  ? trendsResult.trends
+                  : Array.isArray(trendsResult.data)
+                    ? trendsResult.data
+                    : Array.isArray(trendsResult.trending_topics)
+                      ? trendsResult.trending_topics
+                      : [];
                 countryResults.push({
                   country: countryCode,
                   http_status: trendsResponse.status,
                   count: raw.length,
                   response_keys: Object.keys(trendsResult).slice(0, 12),
                   response_preview: JSON.stringify(trendsResult).slice(0, 900),
-                  topics: raw.slice(0, 5).map(item => String(item.name || item.topic || item.title || item.trend_name || "").slice(0, 120)).filter(Boolean)
+                  topics: raw.slice(0, 5).map(item => String(item.title || item.name || item.topic || item.trend_name || "").slice(0, 120)).filter(Boolean)
                 });
               }
             }
