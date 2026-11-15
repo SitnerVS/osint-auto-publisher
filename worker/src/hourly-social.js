@@ -417,6 +417,17 @@ const generationPrompt = [
               host === domain || host.endsWith("." + domain));
         } catch (_) { return false; }
       };
+      const independentDomain = url => {
+        try {
+          const host = new URL(url).hostname.toLowerCase().replace(/^www\\./u, "");
+          const labels = host.split(".");
+          const compoundSuffixes = new Set(["co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "edu.au", "co.nz", "com.br", "co.jp"]);
+          const suffix = labels.slice(-2).join(".");
+          return labels.length >= 3 && compoundSuffixes.has(suffix)
+            ? labels.slice(-3).join(".")
+            : labels.slice(-2).join(".");
+        } catch (_) { return ""; }
+      };
       const mapPreviewVariants = items => items.map((item, index) => {
         const sourceIds = Array.isArray(item?.source_ids)
           ? item.source_ids.map(value => Number(value)).filter(value => Number.isInteger(value) && value > 0)
