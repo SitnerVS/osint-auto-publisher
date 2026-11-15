@@ -1493,7 +1493,7 @@ export class ApprovalCoordinator {
     if (!session) return { ok: true, ignored: true };
     if (action === "input") {
       if (session.status !== "awaiting_topic") return { ok: true, awaiting_choice: session.status === "awaiting_choice" };
-      const topic = String(payload.text || "").replace(/\\s+/g, " ").trim().slice(0, 240);
+      const topic = String(payload.text || "").replace(/\s+/g, " ").trim().slice(0, 240);
       if (topic.length < 2) return { ok: true, failed: true, error: "Напиши тему чуть подробнее — хотя бы два символа." };
       const history = await this.ctx.storage.get("social:humor:history") || [];
       try {
