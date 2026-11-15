@@ -422,10 +422,10 @@ async function sendMainMenu(env, chatId, userId, messageId = null, welcome = fal
 
 function hourlyVariantsPayload(chatId, result, messageId = null) {
   const lines = (result.variants || []).map((item, index) => {
-    const source = Array.isArray(item.source_urls) && item.source_urls.length
-      ? "\nИсточник: " + item.source_urls[0]
+    const sources = Array.isArray(item.source_urls) && item.source_urls.length
+      ? "\nИсточники: " + item.source_urls.slice(0, 2).join(" | ")
       : "";
-    return (index + 1) + ". " + item.text + source;
+    return (index + 1) + ". " + item.text + sources;
   }).join("\n\n");
   const keyboard = (result.variants || []).map((item, index) => [{
     text: "Опубликовать вариант " + (index + 1),
