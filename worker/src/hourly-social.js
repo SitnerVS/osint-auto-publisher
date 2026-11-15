@@ -490,7 +490,6 @@ const generationPrompt = [
           const sentenceCount = (item.text.match(/[.!?]+(?=\\s|$)/gu) || []).length;
           if (sentenceCount < 2 || sentenceCount > 3) issues.push("Вариант " + (index + 1) + ": нужно 2–3 связанных предложения, сейчас " + sentenceCount + ".");
           if (/[?]/u.test(item.text)) issues.push("Вариант " + (index + 1) + ": используй повествовательную форму, не вопрос.");
-          if (/[?]/u.test(item.text)) issues.push("Вариант " + (index + 1) + ": нужен утвердительный факт.");
           if (/\b(?:возможно|вероятно|считается|предположительно|якобы|по легенде|говорят)\b/iu.test(item.text)) issues.push("Вариант " + (index + 1) + ": предположение или легенда не подходят.");
           const verifiedUrls = item.source_urls.filter(url => groundedSources.includes(url) && trustedSource(url));
           const verifiedDomains = new Set(verifiedUrls.map(independentDomain).filter(Boolean));
