@@ -1225,9 +1225,12 @@ export default {
         const hourlyState = await callCoordinator(env, "/hourly-expire", {
           user_id: env.TELEGRAM_CHAT_ID, chat_id: env.TELEGRAM_CHAT_ID
         });
+        const hourlySettings = await callCoordinator(env, "/hourly-settings", {
+          action: "get", user_id: env.TELEGRAM_CHAT_ID, chat_id: env.TELEGRAM_CHAT_ID
+        });
         if (hourlyState.active) {
           console.log("Hourly humor is awaiting the user's choice:", hourlyState.active.session_id);
-        } else if (localTime.endsWith(":00")) {
+        } else if (localTime.endsWith(":00") && hourlySettings.enabled === true) {
           const hourlyResult = await callCoordinator(env, "/hourly-trend", {
             scheduled_at: controller.scheduledTime, manual: true, preview: true
           });
