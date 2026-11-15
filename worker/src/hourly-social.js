@@ -355,14 +355,15 @@ const generationPrompt = [
         previewData = parsePreviewVariants(rawResponse);
       } catch (firstParseError) {
         console.warn("Hourly preview returned invalid variants JSON; requesting strict JSON retry:", rawResponse.slice(0, 1200));
-        const strictRetry = await deps.groqGenerate(env,
-          generationPrompt + "\\n\\nКРИТИЧЕСКИ ВАЖНО: предыдущий ответ не удалось разобрать как JSON. Верни только валидный JSON без Markdown и пояснений, строго в формате: {\\\"trend_id\\\":\\\"NONE\\\",\\\"variants\\\":[{\\\"text\\\":\\\"короткая шутка\\\",\\\"angle\\\":\\\"угол\\\"}, ... ровно пять объектов]}. Проверь синтаксис JSON, экранируй кавычки внутри строк.",
-          { task: "hourly_humor_json_retry", maxAttempts: 2, temperature: 0.8, maxOutputTokens: 1600 }
+        const strictRetry = await deps.geminiGenerate(env,
+          generationPrompt + "\\n\\nКРИТИЧЕСКИ ВАЖНО: верни только валидный JSON без Markdown и пояснений. Для каждого факта укажи source_urls только из реальных результатов Google Search grounding. Не выдумывай факты и ссылки.",
+          { task: "hourly_verified_facts_json_retry", maxAttempts: 2, temperature: 0.1, maxOutputTokens: 3000, responseMimeType: "application/json", googleSearch: true, returnMetadata: true }
         );
+        groundingMetadata = strictRetry?.groundingMetadata || null;
         try {
-          previewData = parsePreviewVariants(String(strictRetry || ""));
+          previewData = parsePreviewVariants(String(strictRetry?.text || ""));
         } catch (secondParseError) {
-          console.warn("Hourly preview strict JSON retry also failed:", String(strictRetry || "").slice(0, 1200));
+          console.warn("Hourly facts strict JSON retry also failed:", String(strictRetry?.text || "").slice(0, 1200));
           return { ok: true, skipped: true, reason: "preview_variants_invalid" };
         }
       }
@@ -372,7 +373,7 @@ const generationPrompt = [
       const groundedSources = groundedChunks.map(chunk => chunk?.web?.uri || chunk?.retrievedContext?.uri || "").filter(Boolean);
       const trustedSource = url => {
         try {
-          const host = new URL(url).hostname.toLowerCase().replace(/^www\\./u, "");
+          const host = new URL(url).hostname.toLowerCase().replace(/^www\./u, "");
           return host.endsWith(".gov") || host.endsWith(".edu") || host.endsWith(".int") ||
             host.endsWith(".museum") || host.endsWith(".gov.uk") || host.endsWith(".ac.uk") ||
             ["britannica.com","nature.com","science.org","pnas.org","cell.com","si.edu",
