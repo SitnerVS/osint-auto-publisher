@@ -100,7 +100,7 @@ const prompt =
     "ТЕМА: " + JSON.stringify(cleanTopic) + ". Проверь каждый вариант по четырём критериям: понятен с первого прочтения; связь с темой конкретная; есть настоящий парадокс или точный поворот; фраза звучит естественно по-русски. " +
     "Отбрасывай бессмысленные ассоциации, натянутые сравнения, случайные подмены, очевидные каламбуры, шаблонный нейросетевой юмор и варианты, где смешное только заявлено, но не возникает. " +
     "Перепиши слабые варианты с нуля, сохранив только сильную исходную мысль. Не добавляй посторонние темы. Каждая итоговая шутка — одно короткое предложение. " +
-    "Оставь ровно пять только если они действительно различаются и проходят критерии. Если сильных меньше пяти, всё равно верни пять, но не заполняй их бессмыслицей: лучше пять лаконичных углов на саму тему. " +
+    "Оставь ровно пять только если они действительно различаются и проходят критерии. Если сильных меньше пяти, верни только сильные варианты — от одного до пяти. Никогда не заполняй список слабым материалом ради количества. " +
     "Верни строго JSON: {\"variants\":[{\"text\":\"...\",\"angle\":\"кратко\"}, ... ровно 5 объектов]}. Черновики: " + JSON.stringify(parsed.variants || []);
   const editedRaw = await geminiGenerate(env, editorPrompt, {
     task: "manual_humor_editor",
@@ -108,8 +108,8 @@ const prompt =
     maxOutputTokens: 1200
   });
   const edited = parseJsonObject(editedRaw);
-  if (!Array.isArray(edited.variants) || edited.variants.length !== 5) {
-    throw new Error("Gemini не вернул ровно пять вариантов. Нажми «Повторная генерация».");
+  if (!Array.isArray(edited.variants) || edited.variants.length < 1 || edited.variants.length > 5) {
+    throw new Error("Gemini не вернул от одного до пяти качественных вариантов. Нажми «Повторная генерация».");
   }
   const variants = edited.variants.map((item, index) => ({
     index,
@@ -132,7 +132,7 @@ const moderationPrompt =
   const moderation = parseJsonObject(moderationRaw);
   const results = Array.isArray(moderation.results) ? moderation.results : [];
   const safeIndices = new Set(results.filter(item => item.safe === true).map(item => Number(item.index)));
-  if (safeIndices.size !== 5 || variants.some(item => !safeIndices.has(item.index))) {
+  if (safeIndices.size !== variants.length || variants.some(item => !safeIndices.has(item.index))) {
     const rejected = results.filter(item => item.safe !== true)
       .map(item => "№" + (Number(item.index) + 1) + ": " + normalizeText(item.reason || "модератор отклонил вариант"))
       .slice(0, 5);
