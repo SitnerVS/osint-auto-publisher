@@ -323,7 +323,7 @@ const generationPrompt = [
       "Точность важнее оригинальности. Если источники не подтверждают факт, не включай его."
     ].join("\n");
     if (typeof deps.tavilySearch !== "function") throw new Error("Внешний поиск фактов не подключён. Нужен TAVILY_API_KEY в Cloudflare Worker Secrets.");
-    const searchResults = await deps.tavilySearch(env, "well documented interesting facts nature animals astronomy history geography science technology university museum government research");
+    const searchResults = await deps.tavilySearch(env, "research-backed facts scientific discoveries nature animals astronomy space history geography technology archaeology language museums universities official research");
     // Give Gemini at most one page per independent publisher domain.
     // This makes it impossible for two selected source IDs to resolve to Britannica (or any other single publisher).
     const compoundSuffixes = new Set(["co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "edu.au", "co.nz", "com.br", "co.jp"]);
@@ -333,6 +333,18 @@ const generationPrompt = [
       const suffix = labels.slice(-2).join(".");
       return labels.length >= 3 && compoundSuffixes.has(suffix) ? labels.slice(-3).join(".") : suffix;
     };
+    const trustedHost = host => {
+      const value = String(host || "").toLowerCase().replace(/^www\./u, "");
+      return /\.(?:gov|edu|int|museum)$/u.test(value) ||
+        /\.(?:gov|ac)\.uk$/u.test(value) ||
+        ["britannica.com", "nature.com", "science.org", "pnas.org", "cell.com", "si.edu",
+         "smithsonianmag.com", "nationalgeographic.com", "unesco.org", "rsc.org", "aps.org",
+         "jstor.org", "ox.ac.uk", "cam.ac.uk", "harvard.edu", "stanford.edu",
+         "metmuseum.org", "amnh.org", "royalsocietypublishing.org", "nationalacademies.org",
+         "history.com", "nasa.gov", "noaa.gov", "usgs.gov", "nps.gov", "nih.gov",
+         "loc.gov", "who.int", "esa.int", "noirlab.edu"].some(domain =>
+          value === domain || value.endsWith("." + domain));
+    };
     const sourceInventory = [];
     const seenPublisherDomains = new Set();
     for (const item of (searchResults || [])) {
@@ -340,6 +352,7 @@ const generationPrompt = [
       if (!/^https?:\/\//iu.test(url)) continue;
       let host = "";
       try { host = new URL(url).hostname.toLowerCase().replace(/^www\./u, ""); } catch (_) { continue; }
+      if (!trustedHost(host)) continue;
       const publisherDomain = rootDomain(host);
       if (!publisherDomain || seenPublisherDomains.has(publisherDomain)) continue;
       seenPublisherDomains.add(publisherDomain);
