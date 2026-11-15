@@ -293,6 +293,12 @@ async function groqGenerate(env, prompt, options = {}) {
     if (response.ok) break;
 
     const message = result.error?.message || "Unknown Groq API error";
+    // Groq may include the model/tool payload that failed its internal parser.
+    // Keep this diagnostic in Worker Logs (not Telegram) and cap its size.
+    const failedGeneration = result.error?.failed_generation ??
+      result.error?.metadata?.failed_generation ??
+      result.failed_generation ??
+      null;
     const retryMatch = message.match(/try again in ([0-9.]+)s/i);
     const retryAfter = Number(response.headers.get("retry-after") || 0);
     const waitSeconds = Math.max(retryAfter, retryMatch ? Number(retryMatch[1]) : 0);
@@ -312,6 +318,9 @@ async function groqGenerate(env, prompt, options = {}) {
       message,
       error_type: result.error?.type || null,
       error_code: result.error?.code || null,
+      failed_generation: failedGeneration == null
+        ? null
+        : String(typeof failedGeneration === "string" ? failedGeneration : JSON.stringify(failedGeneration)).slice(0, 2000),
       rate_limits: rateHeaders,
       task: options.task || "generation",
       attempt,
