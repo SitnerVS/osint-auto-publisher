@@ -153,9 +153,15 @@ async function geminiGenerate(env, prompt, options = {}) {
   let result;
   let retryDelaySeconds = null;
   const maxAttempts = Math.max(1, Math.min(3, Number(options.maxAttempts) || 3));
+  const fallbackModels = Array.isArray(options.fallbackModels)
+    ? [...new Set(options.fallbackModels.map(value => String(value || "").trim()).filter(value => value && value !== model))]
+    : [];
+  let activeModel = model;
+  let attempt = 0;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    response = await requestGemini(model, requestBody);
+  while (attempt < maxAttempts) {
+    attempt++;
+    response = await requestGemini(activeModel, requestBody);
 
     try {
       result = await response.json();
@@ -178,6 +184,21 @@ async function geminiGenerate(env, prompt, options = {}) {
     ).join(" ");
     const dailyQuota = /RequestsPerDay|requests_per_day|generate_content_free_tier_requests/i.test(quotaText);
 
+    // Quotas are model-specific in Gemini. On 429, move to another free
+    // Flash model instead of repeatedly calling the exhausted model.
+    if (response.status === 429 && fallbackModels.length) {
+      const previousModel = activeModel;
+      activeModel = fallbackModels.shift();
+      attempt = 0;
+      console.warn("Gemini quota fallback:", {
+        from: previousModel,
+        to: activeModel,
+        dailyQuota,
+        quotaText
+      });
+      continue;
+    }
+
     // A daily quota cannot be repaired by immediate retries. Honour Google's
     // RetryInfo for transient throttling, with bounded exponential backoff.
     const retryable = response.status === 429 || response.status === 503;
@@ -185,24 +206,30 @@ async function geminiGenerate(env, prompt, options = {}) {
 
     if (!retryable || dailyQuota || attempt === maxAttempts || waitSeconds > 20) {
       const errorMessage = result.error?.message || "Unknown Gemini error";
-      const quotaInfo = details.map(item => {
-        const info = item?.metadata || {};
-        const parts = [];
-        if (info.quotaMetric) parts.push("quotaMetric=" + info.quotaMetric);
-        if (info.quotaId) parts.push("quotaId=" + info.quotaId);
-        if (item?.retryDelay) parts.push("retryDelay=" + item.retryDelay);
-        if (item?.["@type"]?.includes("RetryInfo") && item.retryDelay) parts.push("retryInfo=" + item.retryDelay);
-        return parts.join(", ");
-      }).filter(Boolean).join("; ");
+      const quotaInfo = [
+        ...quotaDetails.map(item => {
+          const parts = [];
+          if (item.quotaMetric) parts.push("quotaMetric=" + item.quotaMetric);
+          if (item.quotaId) parts.push("quotaId=" + item.quotaId);
+          if (item.description) parts.push("description=" + item.description);
+          if (item.quotaValue) parts.push("quotaValue=" + item.quotaValue);
+          if (item.quotaDimensions) parts.push("dimensions=" + JSON.stringify(item.quotaDimensions));
+          return parts.join(", ");
+        }),
+        ...details.filter(item => item?.retryDelay).map(item => "retryDelay=" + item.retryDelay)
+      ].filter(Boolean).join("; ");
       const retryAfter = response.headers.get("retry-after");
       const diagnostic = [
+        "Модель: " + activeModel,
         quotaInfo ? "Детали лимита: " + quotaInfo : "",
         retryAfter ? "Повторить через: " + retryAfter + " сек." : "",
-        dailyQuota ? "Дневная квота исчерпана; повтор до сброса не поможет" : ""
+        dailyQuota ? "Дневная квота исчерпана; повтор до сброса не поможет" : "",
+        !quotaInfo ? "Провайдер не передал детализацию квоты" : ""
       ].filter(Boolean).join(". ");
 
       console.error("Gemini API error:", {
         status: response.status,
+        model: activeModel,
         message: errorMessage,
         quotaInfo,
         retryAfter,
@@ -218,6 +245,7 @@ async function geminiGenerate(env, prompt, options = {}) {
     const jitterMs = Math.floor(Math.random() * 500);
     const delayMs = Math.max(1000, waitSeconds * 1000) + jitterMs;
     console.warn("Gemini transient throttle; retrying:", {
+      model: activeModel,
       attempt,
       maxAttempts,
       waitMs: delayMs,
