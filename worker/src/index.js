@@ -500,6 +500,7 @@ export default {
               "/publish_retry ID — безопасно повторить попытку Threads\n" +
               "/threads_status — проверить подключение Threads\n" +
               "/threads_trends_test — безопасно проверить доступ к трендам Threads\n" +
+              "/hourly_preview — проверить генерацию без публикации\n" +
               "/ai_test — проверка Gemini\n" +
               "/settings — просмотр настроек\n" +
               "/id — проверка Telegram ID"
@@ -562,6 +563,40 @@ export default {
             user_id: userId,
             chat_id: chatId
           });
+        }
+
+        else if (command === "/hourly_preview") {
+          await telegram(env, "sendMessage", {
+            chat_id: chatId,
+            text: "Запускаю безопасный предпросмотр: получу тренды, создам текст и проверю его. Публикация и изменение истории слотов отключены..."
+          });
+          try {
+            const result = await callCoordinator(env, "/hourly-trend", {
+              scheduled_at: Date.now(),
+              manual: true,
+              preview: true
+            });
+            if (result.preview) {
+              await telegram(env, "sendMessage", {
+                chat_id: chatId,
+                text: "ПРЕДПРОСМОТР ЕЖЕЧАСНОЙ РУБРИКИ\n\nТренд: " + result.trend + "\n\n" + result.text + "\n\nПроверки пройдены. Публикации не было."
+              });
+            } else {
+              await telegram(env, "sendMessage", {
+                chat_id: chatId,
+                text: "Предпросмотр завершился без готового текста.\nПричина: " +
+                  String(result.reason || result.error || "подходящий безопасный тренд не найден").slice(0, 500) +
+                  "\n\nПубликации не было."
+              });
+            }
+          } catch (error) {
+            await telegram(env, "sendMessage", {
+              chat_id: chatId,
+              text: "Не удалось выполнить предпросмотр.\nПричина: " +
+                String(error.message || error).slice(0, 700) +
+                "\n\nПубликации не было."
+            });
+          }
         }
 
         else if (command === "/hourly_now") {
@@ -1041,7 +1076,7 @@ export class ApprovalCoordinator {
         }
       } else if (path === "/hourly-trend") {
         const hourlyEnabled = await this.ctx.storage.get("social:hourly:enabled");
-        if (hourlyEnabled === false) {
+        if (hourlyEnabled === false && payload?.preview !== true) {
           result = { ok: true, skipped: true, reason: "hourly_rubric_disabled" };
         } else {
           result = await runHourlyTrend(this, payload, { geminiGenerate, telegram });
