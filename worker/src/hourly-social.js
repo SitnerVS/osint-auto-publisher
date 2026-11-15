@@ -333,31 +333,6 @@ const generationPrompt =
       return { ok: true, preview: true, trend: selectedTrend.name, text: finalText };
     }
 
-(item => item.id === String(candidate.trend_id));
-    if (!selectedTrend) {
-      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "unknown_trend_id", created_at: new Date().toISOString() });
-      await deps.telegram(env, "sendMessage", {
-        chat_id: env.TELEGRAM_CHAT_ID,
-        text: "Черновик не удалось связать с реальным трендом Threads. Публикацию пропустил."
-      });
-      return { ok: true, skipped: true, reason: "unknown_trend_id" };
-    }
-
-    const finalText = normalizeText(candidate.text);
-    const text = finalText;
-    const localFailure = localSafetyFailure(finalText);
-    if (localFailure) {
-      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "local_safety_filter", detail: localFailure, created_at: new Date().toISOString() });
-      await deps.telegram(env, "sendMessage", {
-        chat_id: env.TELEGRAM_CHAT_ID,
-        text: "Черновик ежечасной рубрики не прошёл первичный фильтр. Причина: " + localFailure + ". Ничего не опубликовано."
-      });
-      return { ok: true, skipped: true, reason: "local_safety_filter", detail: localFailure };
-    }
-
-    if (preview) {
-      return { ok: true, preview: true, trend: selectedTrend.name, text: finalText };
-    }
 
     let threadsResult = null;
     let threadsError = "";
