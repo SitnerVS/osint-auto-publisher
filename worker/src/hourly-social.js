@@ -465,7 +465,7 @@ const generationPrompt = [
       let issues = validationIssues(variants);
       if (issues.length) {
         console.warn("Hourly preview validation failed; requesting one repair pass:", issues);
-        const repairPrompt = groundedPrompt + "\n\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ПРОВЕРКУ. Подготовь заново ровно пять фактов. Для каждого укажи ровно два source_ids из каталога, подтверждающих факт и имеющих РАЗНЫЕ домены. Верни только JSON с полями text и source_ids; URL не выдумывай и не возвращай. Ошибки: " + issues.join(" "); URL не выдумывай и не возвращай. Ошибки: " + issues.join(" ");
+        const repairPrompt = groundedPrompt + "\n\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ПРОВЕРКУ. Подготовь заново ровно пять фактов. Для каждого укажи ровно два source_ids из каталога, подтверждающих факт и имеющих РАЗНЫЕ домены. Верни только JSON с полями text и source_ids; URL не выдумывай и не возвращай. Ошибки: " + issues.join(" ");
         const repairedRaw = await deps.geminiGenerate(env, repairPrompt, {
           task: "hourly_verified_facts_recheck",
           model: "gemini-3.5-flash-lite",
