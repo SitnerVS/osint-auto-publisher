@@ -292,9 +292,11 @@ async function tavilySearch(env, query) {
 
   const response = await fetch("https://api.tavily.com/search", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + env.TAVILY_API_KEY
+    },
     body: JSON.stringify({
-      api_key: env.TAVILY_API_KEY,
       query,
       topic: "general",
       search_depth: "basic",
