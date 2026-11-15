@@ -267,21 +267,47 @@ const generationPrompt =
       temperature: 1.0,
       maxOutputTokens: 1200
     });
-    const generatedLines = String(generatedRaw || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-    const trendLine = generatedLines.find(line => /^TREND_ID\s*:/i.test(line));
-    const trendId = trendLine ? trendLine.replace(/^TREND_ID\s*:\s*/i, "").trim() : "";
-    const finalText = generatedLines
-      .filter(line => !/^TREND_ID\s*:/i.test(line))
-      .map(line => line.replace(/^(?:[-*•]|\d+[.)])\s*/, "").replace(/^["«]|["»]$/g, "").trim())
-      .join(" ");
-    if (/^SKIP(?:\s|$)/i.test(generatedLines[0] || "") || !trendId || !finalText) {
-      const skipReason = /^SKIP(?:\s|$)/i.test(generatedLines[0] || "")
-        ? "Модель решила пропустить выпуск: не нашла достаточно удачную шутку"
-        : "Модель вернула ответ в неожиданном формате (не удалось выделить TREND_ID и текст)";
-      console.warn("Hourly joke response could not be parsed:", String(generatedRaw || "").slice(0, 1200));
-      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "editorial_quality_rejected", detail: skipReason, created_at: new Date().toISOString() });
-      return { ok: true, skipped: true, reason: "editorial_quality_rejected", detail: skipReason };
+    const rawResponse = String(generatedRaw || "").trim();
+    const generatedLines = rawResponse
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean);
+    let trendId = "";
+    let finalText = "";
+    // Accept the instructed two-line format, harmless Markdown wrappers,
+    // and structured JSON responses without rejecting a usable joke.
+    const trendMatch = rawResponse.match(/TREND_ID\s*:\s*([^\r\n]+)/i);
+    if (trendMatch) {
+      trendId = trendMatch[1].trim().replace(/^["'`]+|["'`]+$/g, "");
+      finalText = rawResponse
+        .replace(trendMatch[0], "")
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .split(/\r?\n/)
+        .map(line => line.trim().replace(/^(?:[-*•]|\d+[.)])\s*/, "").replace(/^["«]|["»]$/g, "").trim())
+        .filter(Boolean)
+        .join(" ");
+    } else {
+      try {
+        const structured = parseJsonObject(rawResponse);
+        trendId = String(structured.trend_id || structured.trendId || structured.trend || "");
+        finalText = normalizeText(structured.text || structured.joke || structured.content || "");
+      } catch (_) {}
     }
+    const isSkip = /^SKIP(?:\s|$)/i.test(generatedLines[0] || "") || /^SKIP(?:\s|$)/i.test(finalText);
+    if (isSkip || !trendId || !finalText) {
+      const skipReason = isSkip
+        ? "Модель решила пропустить выпуск: не нашла достаточно удачную шутку"
+        : "Ответ модели не содержит распознанных полей TREND_ID и текста";
+      console.warn("Hourly joke response could not be parsed:", rawResponse.slice(0, 1600));
+      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "editorial_quality_rejected", detail: skipReason, created_at: new Date().toISOString() });
+      return { ok: true, skipped: true, reason: skipReason };
+    }
+    // Platform names are not part of the joke; translate accidental mentions
+    // into neutral Russian wording before the Cyrillic-only safety check.
+    finalText = normalizeText(finalText.replace(/\bThreads\b/giu, "соцсеть"));
     const selectedTrend = /^NONE$/i.test(trendId)
       ? { id: "NONE", name: "Повседневная жизнь" }
       : russianTrends.find(item => item.id === trendId);
