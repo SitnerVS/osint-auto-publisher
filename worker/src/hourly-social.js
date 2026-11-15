@@ -6,6 +6,27 @@ function parseJsonObject(raw) {
   return JSON.parse(source.slice(start, end + 1));
 }
 
+function parsePreviewVariants(raw) {
+  const source = String(raw || "").trim();
+  try {
+    const parsed = parseJsonObject(source);
+    if (parsed && Array.isArray(parsed.variants)) return parsed;
+  } catch (_) {}
+  // Models sometimes ignore JSON-only instructions. Recover five clean,
+  // numbered one-line variants instead of discarding the entire preview.
+  const lines = source
+    .replace(/\`\`\`[\s\S]*?\n?/g, "")
+    .split(/\r?\n/u)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => line.replace(/^\s*(?:вариант\s*)?\d+[.)\-:]\s*/iu, "").replace(/^["«„]|["»”]$/gu, "").trim())
+    .filter(line => line && !/^(?:вот|варианты|результат|trend_id|angle)\b/iu.test(line));
+  if (lines.length === 5) {
+    return { trend_id: "NONE", variants: lines.map(text => ({ text, angle: "" })) };
+  }
+  throw new Error("AI response is neither valid JSON nor exactly five numbered lines");
+}
+
 function normalizeText(value) {
   return String(value || "").replace(/\s+/g, " ").replace(/^["«]|["»]$/g, "").trim();
 }
@@ -288,7 +309,7 @@ const likedHumor = await storage.get("social:hourly:liked") || [];
     if (preview) {
       let previewData;
       try {
-        previewData = parseJsonObject(rawResponse);
+        previewData = parsePreviewVariants(rawResponse);
       } catch (firstParseError) {
         console.warn("Hourly preview returned invalid variants JSON; requesting strict JSON retry:", rawResponse.slice(0, 1200));
         const strictRetry = await deps.groqGenerate(env,
@@ -296,7 +317,7 @@ const likedHumor = await storage.get("social:hourly:liked") || [];
           { task: "hourly_humor_json_retry", maxAttempts: 2, temperature: 0.8, maxOutputTokens: 1600 }
         );
         try {
-          previewData = parseJsonObject(String(strictRetry || ""));
+          previewData = parsePreviewVariants(String(strictRetry || ""));
         } catch (secondParseError) {
           console.warn("Hourly preview strict JSON retry also failed:", String(strictRetry || "").slice(0, 1200));
           return { ok: true, skipped: true, reason: "preview_variants_invalid" };
@@ -347,7 +368,7 @@ const likedHumor = await storage.get("social:hourly:liked") || [];
           maxOutputTokens: 1800
         });
         try {
-          const repairedData = parseJsonObject(String(repairedRaw || ""));
+          const repairedData = parsePreviewVariants(String(repairedRaw || ""));
           rawVariants = Array.isArray(repairedData.variants) ? repairedData.variants : [];
           variants = mapPreviewVariants(rawVariants);
           issues = validationIssues(variants);
