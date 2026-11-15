@@ -75,8 +75,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
   if (existing && !preview) {
     const alreadyPublished =
       existing.status === "published" ||
-      Boolean(existing.threads_post_id) ||
-      Boolean(existing.published_at);
+      Boolean(existing.threads_post_id);
 
     if (alreadyPublished) {
       return { ok: true, skipped: true, reason: "slot_already_published" };
@@ -142,7 +141,9 @@ export async function runHourlyTrend(coordinator, payload, deps) {
           ? trendsResult.trending_topics
           : [];
     const history = await storage.get("social:hourly:history") || [];
-    const usedTrendIds = new Set(history.slice(-48).map(item => String(item.trend_id || "")));
+    const usedTrendIds = new Set(
+      history.filter(item => item.threads_post_id).slice(-48).map(item => String(item.trend_id || ""))
+    );
     const trends = rawTrends
       .map((item, index) => ({
         id: String(item.trend_id || item.id || ""),
@@ -169,7 +170,10 @@ export async function runHourlyTrend(coordinator, payload, deps) {
       .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
       .slice(0, 18)
       .map(item => String(item.title || item.text_content || "").replace(/\s+/g, " ").slice(0, 180));
-    const recentFunnyHistory = history.slice(-18).map(item => String(item.text || "").slice(0, 220));
+    const recentFunnyHistory = history
+      .filter(item => item.threads_post_id)
+      .slice(-18)
+      .map(item => String(item.text || "").slice(0, 220));
 
     const generationPrompt =
       "Ты — автор короткой русскоязычной юмористической рубрики для аккаунта OSINTNER. " +
@@ -258,21 +262,23 @@ export async function runHourlyTrend(coordinator, payload, deps) {
       console.error("Hourly Threads publishing failed:", threadsError);
     }
 
-    const publishedAt = new Date().toISOString();
+    const eventAt = new Date().toISOString();
     const record = {
       slot,
       trend_id: selectedTrend.id,
       trend: selectedTrend.name,
       text,
-      published_at: publishedAt,
+      ...(threadsResult ? { published_at: eventAt } : { failed_at: eventAt }),
       threads_post_id: threadsResult?.id || "",
       threads_permalink: threadsResult?.permalink || "",
       threads_error: threadsError
     };
 
-    const latestHistory = await storage.get("social:hourly:history") || [];
-    latestHistory.push(record);
-    await storage.put("social:hourly:history", latestHistory.slice(-100));
+    if (threadsResult) {
+      const latestHistory = await storage.get("social:hourly:history") || [];
+      latestHistory.push(record);
+      await storage.put("social:hourly:history", latestHistory.slice(-100));
+    }
     await storage.put(slotKey, {
       status: threadsResult ? "published" : "failed",
       ...record
