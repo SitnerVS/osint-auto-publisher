@@ -723,11 +723,18 @@ export default {
                 chat_id: chatId,
                 text: "ПРЕДПРОСМОТР ЕЖЕЧАСНОЙ РУБРИКИ\n\nТренд: " + result.trend + "\n\n" + result.text + "\n\nПроверки пройдены. Публикации не было."
               });
-            } else if (!result.skipped && !result.failed) {
+            } else {
+              const reasons = {
+                threads_publishing_disabled: "Публикации Threads отключены в настройках Worker.",
+                threads_not_connected: "Аккаунт Threads не подключён или токен истёк.",
+                no_fresh_trends: "Не найдено свежих трендов.",
+                no_safe_trend: "Не нашлось подходящей безопасной темы.",
+                local_safety_filter: "Черновик не прошёл локальную проверку безопасности."
+              };
               await telegram(env, "sendMessage", {
                 chat_id: chatId,
-                text: "Предпросмотр завершился без готового текста.\nПричина: " +
-                  String(result.reason || result.error || "подходящий безопасный тренд не найден").slice(0, 500) +
+                text: "ПРЕДПРОСМОТР НЕ ПОЛУЧЕН.\nПричина: " +
+                  (reasons[result.reason] || String(result.reason || result.error || "неизвестная ошибка")).slice(0, 500) +
                   "\n\nПубликации не было."
               });
             }
@@ -1007,15 +1014,19 @@ export default {
             text:
               "Неизвестная команда.\n\n" +
               "Доступные команды:\n" +
-              "/start\n" +
-              "/test\n" +
-              "/generate\n" +
-              "/publish_retry ID\n" +
-              "/threads_status\n" +
-              "/threads_trends_test\n" +
-              "/settings\n" +
-              "/ai_test\n" +
-              "/id"
+              "/start или /menu — главное меню\n" +
+              "/generate — новая редакционная тема\n" +
+              "/test — тест согласования без публикации\n" +
+              "/hourly_now — юмор по трендам вне очереди\n" +
+              "/hourly_start — включить автоюмор и запустить\n" +
+              "/hourly_preview — предпросмотр без публикации\n" +
+              "/threads_status — статус подключения Threads\n" +
+              "/threads_publish_check — проверка разрешений\n" +
+              "/threads_trends_test — проверка трендов\n" +
+              "/publish_retry ID — безопасный повтор публикации\n" +
+              "/settings — настройки\n" +
+              "/ai_test — проверка Gemini\n" +
+              "/id — идентификаторы чата"
           });
         }
       }
