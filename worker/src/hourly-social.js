@@ -261,15 +261,18 @@ const generationPrompt =
       temperature: 1.0,
       maxOutputTokens: 1200
     });
-    const generatedLines = String(generatedRaw || "").split(/\\r?\\n/).map(line => line.trim()).filter(Boolean);
-    const trendLine = generatedLines.find(line => /^TREND_ID\\s*:/i.test(line));
-    const trendId = trendLine ? trendLine.replace(/^TREND_ID\\s*:\\s*/i, "").trim() : "";
+    const generatedLines = String(generatedRaw || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const trendLine = generatedLines.find(line => /^TREND_ID\s*:/i.test(line));
+    const trendId = trendLine ? trendLine.replace(/^TREND_ID\s*:\s*/i, "").trim() : "";
     const finalText = generatedLines
-      .filter(line => !/^TREND_ID\\s*:/i.test(line))
-      .map(line => line.replace(/^(?:[-*•]|\\d+[.)])\\s*/, "").replace(/^["«]|["»]$/g, "").trim())
+      .filter(line => !/^TREND_ID\s*:/i.test(line))
+      .map(line => line.replace(/^(?:[-*•]|\d+[.)])\s*/, "").replace(/^["«]|["»]$/g, "").trim())
       .join(" ");
-    if (/^SKIP(?:\\s|$)/i.test(generatedLines[0] || "") || !trendId || !finalText) {
-      const skipReason = "Модель не подготовила достаточно смешную шутку";
+    if (/^SKIP(?:\s|$)/i.test(generatedLines[0] || "") || !trendId || !finalText) {
+      const skipReason = /^SKIP(?:\s|$)/i.test(generatedLines[0] || "")
+        ? "Модель решила пропустить выпуск: не нашла достаточно удачную шутку"
+        : "Модель вернула ответ в неожиданном формате (не удалось выделить TREND_ID и текст)";
+      console.warn("Hourly joke response could not be parsed:", String(generatedRaw || "").slice(0, 1200));
       if (!preview) await storage.put(slotKey, { status: "skipped", reason: "editorial_quality_rejected", detail: skipReason, created_at: new Date().toISOString() });
       return { ok: true, skipped: true, reason: "editorial_quality_rejected", detail: skipReason };
     }
