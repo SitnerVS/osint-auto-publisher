@@ -326,13 +326,16 @@ const generationPrompt =
     // Platform names are not part of the joke; translate accidental mentions
     // into neutral Russian wording before the Cyrillic-only safety check.
     finalText = normalizeText(finalText.replace(/\bThreads\b/giu, "соцсеть"));
-    const selectedTrend = /^NONE$/i.test(trendId)
-      ? { id: "NONE", name: "Повседневная жизнь" }
+    const matchedTrend = /^NONE$/i.test(trendId)
+      ? null
       : russianTrends.find(item => item.id === trendId);
-    if (!selectedTrend) {
-      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "unknown_trend_id", created_at: new Date().toISOString() });
-      return { ok: true, skipped: true, reason: "unknown_trend_id" };
+    // Trend metadata is optional. If the model invents or slightly alters an
+    // ID, keep the usable joke and classify it as everyday life instead of
+    // rejecting the whole preview/publication.
+    if (trendId && !/^NONE$/i.test(trendId) && !matchedTrend) {
+      console.warn("Hourly joke returned an unknown trend ID; falling back to NONE:", trendId);
     }
+    const selectedTrend = matchedTrend || { id: "NONE", name: "Повседневная жизнь" };
     const reviewedText = normalizeText(finalText);
     const text = finalText;
     const localFailure = localSafetyFailure(finalText);
