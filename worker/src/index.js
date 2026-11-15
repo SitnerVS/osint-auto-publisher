@@ -859,7 +859,8 @@ export default {
               ).join("\n\n");
               await telegram(env, "sendMessage", {
                 chat_id: chatId,
-                text: "THREADS TRENDING TOPICS: ПРОВЕРКА ЗАВЕРШЕНА\n" + details +
+                text: "THREADS TRENDING TOPICS: ПРОВЕРКА ЗАВЕРШЕНА\n" +
+                  (details || String(result.error || "API не вернул подробности.")) +
                   "\n\nПроверка выполнена без генерации и публикации."
               });
             } else {
@@ -868,7 +869,7 @@ export default {
                 text: "THREADS TRENDING TOPICS: ДОСТУП НЕ ПОДТВЕРЖДЁН\nHTTP: " +
                   String(result.http_status || "—") + "\nПричина: " +
                   String(result.error || "неизвестная ошибка").slice(0, 700) +
-                  "\n\nПубликация не запускалась."
+                  "\n\nПроверка не запускала генерацию и публикацию."
               });
             }
           } catch (error) {
