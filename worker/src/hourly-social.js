@@ -328,7 +328,7 @@ const generationPrompt = [
     // This makes it impossible for two selected source IDs to resolve to Britannica (or any other single publisher).
     const compoundSuffixes = new Set(["co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "edu.au", "co.nz", "com.br", "co.jp"]);
     const rootDomain = host => {
-      const labels = String(host || "").toLowerCase().replace(/^www\\./u, "").split(".").filter(Boolean);
+      const labels = String(host || "").toLowerCase().replace(/^www\./u, "").split(".").filter(Boolean);
       if (labels.length < 2) return "";
       const suffix = labels.slice(-2).join(".");
       return labels.length >= 3 && compoundSuffixes.has(suffix) ? labels.slice(-3).join(".") : suffix;
@@ -337,9 +337,9 @@ const generationPrompt = [
     const seenPublisherDomains = new Set();
     for (const item of (searchResults || [])) {
       const url = String(item.url || "").trim();
-      if (!/^https?:\\/\\//iu.test(url)) continue;
+      if (!/^https?:\/\//iu.test(url)) continue;
       let host = "";
-      try { host = new URL(url).hostname.toLowerCase().replace(/^www\\./u, ""); } catch (_) { continue; }
+      try { host = new URL(url).hostname.toLowerCase().replace(/^www\./u, ""); } catch (_) { continue; }
       const publisherDomain = rootDomain(host);
       if (!publisherDomain || seenPublisherDomains.has(publisherDomain)) continue;
       seenPublisherDomains.add(publisherDomain);
