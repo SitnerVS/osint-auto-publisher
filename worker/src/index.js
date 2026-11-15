@@ -245,6 +245,57 @@ async function geminiGenerate(env, prompt, options = {}) {
   return answer;
 }
 
+// GROQ AI — hourly humor only
+// ======================================================
+
+async function groqGenerate(env, prompt, options = {}) {
+  if (!env.GROQ_API_KEY) {
+    throw new Error("GROQ_API_KEY is not configured. Add it as a Cloudflare Worker secret.");
+  }
+
+  const model = options.model || "openai/gpt-oss-120b";
+  console.log("Groq request started:", options.task || "generation", "model:", model);
+
+  const requestBody = {
+    model,
+    messages: [{ role: "user", content: prompt }],
+    temperature: options.temperature ?? 0.7,
+    max_completion_tokens: options.maxOutputTokens ?? 1000,
+    ...(options.responseMimeType === "application/json"
+      ? { response_format: { type: "json_object" } }
+      : {})
+  };
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + env.GROQ_API_KEY
+    },
+    body: JSON.stringify(requestBody)
+  });
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = result.error?.message || "Unknown Groq API error";
+    console.error("Groq API error:", { status: response.status, message, task: options.task || "generation" });
+    throw new Error("Groq API " + response.status + ": " + message);
+  }
+
+  const content = result.choices?.[0]?.message?.content;
+  const answer = Array.isArray(content)
+    ? content.map(part => typeof part === "string" ? part : part?.text || "").join("").trim()
+    : String(content || "").trim();
+
+  if (!answer) {
+    console.error("Groq returned no text:", JSON.stringify(result).slice(0, 1200));
+    throw new Error("Groq returned an empty response");
+  }
+
+  console.log("Groq generation successful:", options.task || "generation");
+  return answer;
+}
+
 // APPROVAL MESSAGE
 // ======================================================
 
@@ -1494,7 +1545,7 @@ export class ApprovalCoordinator {
         if (hourlyEnabled === false && payload?.preview !== true) {
           result = { ok: true, skipped: true, reason: "hourly_rubric_disabled" };
         } else {
-          result = await runHourlyTrend(this, payload, { geminiGenerate, telegram });
+          result = await runHourlyTrend(this, payload, { groqGenerate, telegram });
         }
       } else {
         result = await this.handleCallback(payload);
