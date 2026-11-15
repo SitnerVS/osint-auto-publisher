@@ -254,10 +254,10 @@ async function sendMainMenu(env, chatId, userId, messageId = null, welcome = fal
     chat_id: chatId
   });
   const enabled = status.enabled === true;
-  const text = (welcome ? "OSINT Editorial подключён.\\nСистема управления готова.\\n\\n" : "") +
-    "OSINTNER — ГЛАВНОЕ МЕНЮ\\n\\n" +
-    "Ежечасный юмор: " + (enabled ? "ВКЛЮЧЁН" : "ВЫКЛЮЧЕН") + "\\n" +
-    "Редакционные публикации: 09:00, 12:00, 15:00, 18:00 и 21:00 — с финальным одобрением.\\n\\n" +
+  const text = (welcome ? "OSINT Editorial подключён.\nСистема управления готова.\n\n" : "") +
+    "OSINTNER — ГЛАВНОЕ МЕНЮ\n\n" +
+    "Ежечасный юмор: " + (enabled ? "ВКЛЮЧЁН" : "ВЫКЛЮЧЕН") + "\n" +
+    "Редакционные публикации: 09:00, 12:00, 15:00, 18:00 и 21:00 — с финальным одобрением.\n\n" +
     "Выбери действие:";
   const payload = { chat_id: chatId, text, reply_markup: menuKeyboard(enabled) };
   if (messageId) {
@@ -269,7 +269,7 @@ async function sendMainMenu(env, chatId, userId, messageId = null, welcome = fal
 }
 
 function humorVariantsPayload(chatId, result, messageId = null) {
-  const lines = result.variants.map((item, index) => (index + 1) + ". " + item.text).join("\\n\\n");
+  const lines = result.variants.map((item, index) => (index + 1) + ". " + item.text).join("\n\n");
   const keyboard = result.variants.map((item, index) => [{
     text: "Выбрать вариант " + (index + 1),
     callback_data: "humor:pick:" + result.session_id + ":" + index
@@ -278,8 +278,8 @@ function humorVariantsPayload(chatId, result, messageId = null) {
   keyboard.push([{ text: "✖️ Отмена", callback_data: "humor:cancel:" + result.session_id }]);
   const payload = {
     chat_id: chatId,
-    text: "ЮМОРНАЯ НОВОСТЬ БЕЗ ОЧЕРЕДИ\\nТема: " + result.topic + "\\n\\n" +
-      lines + "\\n\\nВыбери один вариант для публикации или запроси новую пятёрку.",
+    text: "ЮМОРНАЯ НОВОСТЬ БЕЗ ОЧЕРЕДИ\nТема: " + result.topic + "\n\n" +
+      lines + "\n\nВыбери один вариант для публикации или запроси новую пятёрку.",
     reply_markup: { inline_keyboard: keyboard }
   };
   if (messageId) payload.message_id = messageId;
@@ -314,7 +314,7 @@ async function runMenuAction(env, action, userId, chatId) {
     await telegram(env, "sendMessage", {
       chat_id: chatId,
       text: result.preview
-        ? "ПРЕДПРОСМОТР\\nТренд: " + result.trend + "\\n\\n" + result.text + "\\n\\nПубликации не было."
+        ? "ПРЕДПРОСМОТР\nТренд: " + result.trend + "\n\n" + result.text + "\n\nПубликации не было."
         : "Предпросмотр не получен. Причина: " + String(result.reason || result.error || "нет подходящего варианта")
     });
     return;
@@ -323,7 +323,7 @@ async function runMenuAction(env, action, userId, chatId) {
     const result = await callCoordinator(env, "/threads/status", { user_id: userId, chat_id: chatId });
     const expiry = result.expires_at ? new Date(result.expires_at).toLocaleString("ru-RU") : "—";
     await telegram(env, "sendMessage", { chat_id: chatId, text: result.connected
-      ? "THREADS: @" + result.username + "\\nТокен: " + (result.expired ? "истёк" : "действителен") + "\\nСрок действия до: " + expiry
+      ? "THREADS: @" + result.username + "\nТокен: " + (result.expired ? "истёк" : "действителен") + "\nСрок действия до: " + expiry
       : "Аккаунт Threads не подключён." });
     return;
   }
@@ -333,24 +333,24 @@ async function runMenuAction(env, action, userId, chatId) {
       app_id: env.THREADS_APP_ID || "", app_secret: env.THREADS_APP_SECRET || ""
     });
     await telegram(env, "sendMessage", { chat_id: chatId,
-      text: "ПРОВЕРКА THREADS PUBLISH\\nПрофиль: " + (result.username ? "@" + result.username : "—") +
-        "\\nID совпадает: " + (result.user_id_matches === true ? "ДА" : result.user_id_matches === false ? "НЕТ" : "неизвестно") +
-        "\\nthreads_basic: " + (result.has_basic === true ? "есть" : result.has_basic === false ? "нет" : "неизвестно") +
-        "\\nthreads_content_publish: " + (result.has_publish === true ? "есть" : result.has_publish === false ? "нет" : "неизвестно") +
-        "\\nРазрешения: " + (result.scopes || []).join(", ") + "\\nПубликация не выполнялась." });
+      text: "ПРОВЕРКА THREADS PUBLISH\nПрофиль: " + (result.username ? "@" + result.username : "—") +
+        "\nID совпадает: " + (result.user_id_matches === true ? "ДА" : result.user_id_matches === false ? "НЕТ" : "неизвестно") +
+        "\nthreads_basic: " + (result.has_basic === true ? "есть" : result.has_basic === false ? "нет" : "неизвестно") +
+        "\nthreads_content_publish: " + (result.has_publish === true ? "есть" : result.has_publish === false ? "нет" : "неизвестно") +
+        "\nРазрешения: " + (result.scopes || []).join(", ") + "\nПубликация не выполнялась." });
     return;
   }
   if (action === "threads_trends_test") {
     const result = await callCoordinator(env, "/threads/trends-test", { user_id: userId, chat_id: chatId });
-    const details = (result.countries || []).map(item => item.country + ": HTTP " + item.http_status + ", трендов: " + (item.count ?? "—")).join("\\n");
-    await telegram(env, "sendMessage", { chat_id: chatId, text: "ПРОВЕРКА THREADS TRENDING TOPICS\\n" + details + "\\nПубликация не выполнялась." });
+    const details = (result.countries || []).map(item => item.country + ": HTTP " + item.http_status + ", трендов: " + (item.count ?? "—")).join("\n");
+    await telegram(env, "sendMessage", { chat_id: chatId, text: "ПРОВЕРКА THREADS TRENDING TOPICS\n" + details + "\nПубликация не выполнялась." });
     return;
   }
   if (action === "settings") {
     await telegram(env, "sendMessage", { chat_id: chatId,
-      text: "OSINTNER SETTINGS\\nПлатформа: Threads\\nЧасовой пояс: " + SETTINGS.publishing.schedule_timezone +
-        "\\nРедакционные публикации: " + SETTINGS.publishing.feed_schedule.join(", ") +
-        "\\nРотация: " + SETTINGS.content_strategy.topic_rotation.join(" → ") + "\\nХештеги: отключены" });
+      text: "OSINTNER SETTINGS\nПлатформа: Threads\nЧасовой пояс: " + SETTINGS.publishing.schedule_timezone +
+        "\nРедакционные публикации: " + SETTINGS.publishing.feed_schedule.join(", ") +
+        "\nРотация: " + SETTINGS.content_strategy.topic_rotation.join(" → ") + "\nХештеги: отключены" });
     return;
   }
   if (action === "test") {
@@ -364,14 +364,14 @@ async function runMenuAction(env, action, userId, chatId) {
   }
   if (action === "id") {
     await telegram(env, "sendMessage", { chat_id: chatId,
-      text: "TELEGRAM DIAGNOSTICS\\nChat ID: " + chatId + "\\nUser ID: " + userId +
-        "\\nGemini: " + (env.GEMINI_API_KEY ? "configured" : "missing") +
-        "\\nCoordinator: " + (env.APPROVAL_COORDINATOR ? "configured" : "missing") });
+      text: "TELEGRAM DIAGNOSTICS\nChat ID: " + chatId + "\nUser ID: " + userId +
+        "\nGemini: " + (env.GEMINI_API_KEY ? "configured" : "missing") +
+        "\nCoordinator: " + (env.APPROVAL_COORDINATOR ? "configured" : "missing") });
     return;
   }
   if (action === "publish_retry") {
     await telegram(env, "sendMessage", { chat_id: chatId,
-      text: "Для безопасного повтора отправь команду:\\n/publish_retry material-xxxxxxxx\\n\\nID материала указан в сообщении о согласовании." });
+      text: "Для безопасного повтора отправь команду:\n/publish_retry material-xxxxxxxx\n\nID материала указан в сообщении о согласовании." });
   }
 }
 
@@ -966,7 +966,7 @@ export default {
           if (result.generated) {
             await telegram(env, "sendMessage", humorVariantsPayload(chatId, result));
           } else if (result.failed) {
-            await telegram(env, "sendMessage", { chat_id: chatId, text: "Не удалось подготовить пять вариантов.\\n" + String(result.error || "Попробуй отправить тему ещё раз.").slice(0, 700) });
+            await telegram(env, "sendMessage", { chat_id: chatId, text: "Не удалось подготовить пять вариантов.\n" + String(result.error || "Попробуй отправить тему ещё раз.").slice(0, 700) });
           } else if (result.awaiting_choice) {
             await telegram(env, "sendMessage", { chat_id: chatId, text: "Для этой темы уже подготовлены пять вариантов. Выбери один кнопкой или нажми повторную генерацию." });
           }
@@ -1042,11 +1042,11 @@ export default {
             if (result.published) {
               await telegram(env, "editMessageText", {
                 chat_id: callbackChatId, message_id: callback.message.message_id,
-                text: "ВЫБРАННЫЙ ВАРИАНТ ОПУБЛИКОВАН В THREADS\\n\\n" + result.text +
-                  (result.permalink ? "\\n\\n" + result.permalink : "\\nID: " + result.post_id)
+                text: "ВЫБРАННЫЙ ВАРИАНТ ОПУБЛИКОВАН В THREADS\n\n" + result.text +
+                  (result.permalink ? "\n\n" + result.permalink : "\nID: " + result.post_id)
               });
             } else if (result.failed) {
-              await telegram(env, "sendMessage", { chat_id: callbackChatId, text: "Публикация не выполнена. Повторно нажимать вариант не нужно.\\n" + String(result.error || "Проверь Threads вручную.").slice(0, 600) });
+              await telegram(env, "sendMessage", { chat_id: callbackChatId, text: "Публикация не выполнена. Повторно нажимать вариант не нужно.\n" + String(result.error || "Проверь Threads вручную.").slice(0, 600) });
             }
           } else if (data.startsWith("humor:cancel:")) {
             const sessionId = data.split(":")[2] || "";
