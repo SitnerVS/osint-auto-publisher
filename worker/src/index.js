@@ -328,7 +328,7 @@ async function tavilySearch(env, query) {
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== "https:" && parsed.protocol !== "http:") continue;
-      host = parsed.hostname.toLowerCase().replace(/^www\\./u, "");
+      host = parsed.hostname.toLowerCase().replace(/^www\./u, "");
     } catch (_) { continue; }
     if (!url || !item.content || seen.has(host)) continue;
     seen.add(host);
