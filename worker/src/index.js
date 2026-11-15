@@ -457,12 +457,26 @@ async function runMenuAction(env, action, userId, chatId) {
   }
   if (action === "hourly_preview") {
     const result = await callCoordinator(env, "/hourly-trend", { scheduled_at: Date.now(), manual: true, preview: true });
-    await telegram(env, "sendMessage", {
-      chat_id: chatId,
-      text: result.preview
-        ? "ПРЕДПРОСМОТР\nТренд: " + result.trend + "\n\n" + result.text + "\n\nПубликации не было."
-        : "Предпросмотр не получен. Причина: " + String(result.reason || result.error || "нет подходящего варианта")
-    });
+    if (result.preview && Array.isArray(result.variants) && result.session_id) {
+      const lines = result.variants.map((item, index) => (index + 1) + ". " + item.text).join("\n\n");
+      const keyboard = result.variants.map((item, index) => [{
+        text: "Мне нравится вариант " + (index + 1),
+        callback_data: "hourly:like:" + result.session_id + ":" + index
+      }]);
+      keyboard.push([{ text: "🔄 Новая пятёрка", callback_data: "menu:hourly_preview" }]);
+      await telegram(env, "sendMessage", {
+        chat_id: chatId,
+        text: "ПРЕДПРОСМОТР ЕЖЕЧАСНОГО ЮМОРА\nТренд: " + result.trend + "\n\n" + lines +
+          "\n\nОтметь понравившийся вариант — он станет ориентиром для следующих генераций. Ничего не опубликовано.",
+        reply_markup: { inline_keyboard: keyboard }
+      });
+    } else {
+      await telegram(env, "sendMessage", {
+        chat_id: chatId,
+        text: "Предпросмотр не получен. Причина: " + String(result.reason || result.error || "нет подходящего варианта") +
+          "\nПубликации не было."
+      });
+    }
     return;
   }
   if (action === "threads_status") {
@@ -1231,6 +1245,17 @@ export default {
             } else if (result.failed) {
               await telegram(env, "sendMessage", { chat_id: callbackChatId, text: "Публикация не выполнена. Повторно нажимать вариант не нужно.\n" + String(result.error || "Проверь Threads вручную.").slice(0, 600) });
             }
+          } else if (data.startsWith("hourly:like:")) {
+            const parts = data.split(":");
+            const result = await callCoordinator(env, "/hourly-preview-feedback", {
+              session_id: parts[2] || "", index: Number(parts[3]), user_id: callbackUserId, chat_id: callbackChatId
+            });
+            await telegram(env, "editMessageText", {
+              chat_id: callbackChatId, message_id: callback.message.message_id,
+              text: result.saved
+                ? "ПРИНЯТО. Этот вариант сохранён как положительный пример стиля.\n\n" + result.text + "\n\nНичего не опубликовано."
+                : "Не удалось сохранить выбор: " + String(result.error || "подборка устарела")
+            });
           } else if (data.startsWith("humor:cancel:")) {
             const sessionId = data.split(":")[2] || "";
             await callCoordinator(env, "/humor-topic", { action: "cancel", session_id: sessionId, user_id: callbackUserId, chat_id: callbackChatId });
@@ -1579,6 +1604,24 @@ export class ApprovalCoordinator {
           result = { ok: true, skipped: true, reason: "hourly_rubric_disabled" };
         } else {
           result = await runHourlyTrend(this, payload, { groqGenerate, telegram });
+        }
+      } else if (path === "/hourly-preview-feedback") {
+        const expectedId = String(this.env.TELEGRAM_CHAT_ID || "");
+        if (String(payload.chat_id || "") !== expectedId || String(payload.user_id || "") !== expectedId) {
+          result = { ok: false, error: "Unauthorized" };
+        } else {
+          const key = "social:hourly:preview:" + String(payload.session_id || "");
+          const session = await this.ctx.storage.get(key);
+          const selected = (session?.variants || []).find(item => item.index === Number(payload.index));
+          if (!session || session.status !== "awaiting_feedback" || !selected) {
+            result = { ok: true, saved: false, error: "Подборка устарела или вариант не найден." };
+          } else {
+            const liked = await this.ctx.storage.get("social:hourly:liked") || [];
+            liked.push({ text: selected.text, trend: session.trend, liked_at: new Date().toISOString() });
+            await this.ctx.storage.put("social:hourly:liked", liked.slice(-30));
+            await this.ctx.storage.put(key, { ...session, status: "feedback_saved", selected_index: selected.index });
+            result = { ok: true, saved: true, text: selected.text };
+          }
         }
       } else {
         result = await this.handleCallback(payload);
