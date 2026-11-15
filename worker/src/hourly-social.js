@@ -222,16 +222,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
       .sort((a, b) => a.rank - b.rank)
       .slice(0, 20);
 
-    if (!trends.length) {
-      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "no_fresh_trends", created_at: new Date().toISOString() });
-      await deps.telegram(env, "sendMessage", {
-        chat_id: env.TELEGRAM_CHAT_ID,
-        text: "В этот час не нашёл свежего подходящего тренда Threads. Ничего публиковать не стал."
-      });
-      return { ok: true, skipped: true, reason: "no_fresh_trends" };
-    }
-
-    const itemEntries = await storage.list({ prefix: "item:" });
+    // Trend data is optional; humor generation continues even without a fresh trend.\n\n    const itemEntries = await storage.list({ prefix: "item:" });
     const editorialHistory = [...itemEntries.values()]
       .filter(item => item && (item.title || item.text_content))
       .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
