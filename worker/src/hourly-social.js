@@ -329,7 +329,8 @@ const generationPrompt = [
       if (typeof deps.geminiGenerate !== "function") throw new Error("Не подключён Gemini с поиском Google для проверки фактов.");
       const grounded = await deps.geminiGenerate(env, generationPrompt, {
         task: "hourly_verified_facts_generation",
-        model: "gemini-3.5-flash-lite",
+        model: "gemini-3.1-flash-lite",
+        fallbackModels: ["gemini-2.5-flash-lite"],
         maxAttempts: 1,
         temperature: 0.2,
         maxOutputTokens: 1400,
@@ -341,7 +342,8 @@ const generationPrompt = [
     } else {
       const generatedRaw = await deps.geminiGenerate(env, generationPrompt, {
         task: "hourly_fact_generation",
-        model: "gemini-3.5-flash-lite",
+        model: "gemini-3.1-flash-lite",
+        fallbackModels: ["gemini-2.5-flash-lite"],
         maxAttempts: 1,
         temperature: 0.2,
         maxOutputTokens: 800,
@@ -367,7 +369,8 @@ const generationPrompt = [
         ].join("\\n");
         const recovered = await deps.geminiGenerate(env, recoveryPrompt, {
           task: "hourly_verified_facts_recovery",
-          model: "gemini-3.5-flash-lite",
+          model: "gemini-3.1-flash-lite",
+        fallbackModels: ["gemini-2.5-flash-lite"],
           maxAttempts: 1,
           temperature: 0.2,
           maxOutputTokens: 1400,
@@ -439,7 +442,8 @@ const generationPrompt = [
         const repairPrompt = generationPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ФАКТЧЕК. Подготовь заново ровно пять фактов и укажи только реальные source_urls из Google Search Gemini. Исправь ошибки: " + issues.join(" ") + " Не выдумывай ссылки и утверждения.";
         const repairedRaw = await deps.geminiGenerate(env, repairPrompt, {
           task: "hourly_verified_facts_recheck",
-          model: "gemini-3.5-flash-lite",
+          model: "gemini-3.1-flash-lite",
+        fallbackModels: ["gemini-2.5-flash-lite"],
           maxAttempts: 1,
           temperature: 0.1,
           maxOutputTokens: 1400,
