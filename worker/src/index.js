@@ -282,6 +282,70 @@ async function geminiGenerate(env, prompt, options = {}) {
   return answer;
 }
 
+// INDEPENDENT WEB SEARCH — hourly facts
+// ======================================================
+
+async function tavilySearch(env, query) {
+  if (!env.TAVILY_API_KEY) {
+    throw new Error("TAVILY_API_KEY is not configured. Add the Tavily key as a Cloudflare Worker secret.");
+  }
+
+  const response = await fetch("https://api.tavily.com/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      api_key: env.TAVILY_API_KEY,
+      query,
+      topic: "general",
+      search_depth: "basic",
+      max_results: 20,
+      include_answer: false,
+      include_raw_content: false,
+      include_domains: [
+        "nasa.gov", "noaa.gov", "usgs.gov", "nps.gov", "nih.gov", "loc.gov",
+        "si.edu", "smithsonianmag.com", "britannica.com", "nature.com",
+        "science.org", "pnas.org", "nationalgeographic.com", "unesco.org",
+        "rsc.org", "aps.org", "jstor.org", "ox.ac.uk", "cam.ac.uk",
+        "harvard.edu", "stanford.edu", "who.int", "esa.int",
+        "royalsocietypublishing.org", "nationalacademies.org", "metmuseum.org",
+        "amnh.org", "history.com", "noirlab.edu", "science.nasa.gov"
+      ]
+    })
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = String(data.detail || data.message || data.error || "Unknown Tavily error").slice(0, 500);
+    throw new Error("Tavily Search API " + response.status + ": " + message);
+  }
+
+  const results = Array.isArray(data.results) ? data.results : [];
+  const unique = [];
+  const seen = new Set();
+  for (const item of results) {
+    const url = String(item.url || "").trim();
+    let host = "";
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") continue;
+      host = parsed.hostname.toLowerCase().replace(/^www\\./u, "");
+    } catch (_) { continue; }
+    if (!url || !item.content || seen.has(host)) continue;
+    seen.add(host);
+    unique.push({
+      title: String(item.title || "").slice(0, 240),
+      url,
+      content: String(item.content || "").slice(0, 1800)
+    });
+  }
+
+  console.log("Tavily hourly fact search completed:", {
+    results: unique.length,
+    request_id: data.request_id || null
+  });
+  return unique;
+}
+
 // GROQ AI — hourly humor only
 // ======================================================
 
@@ -1619,7 +1683,7 @@ export class ApprovalCoordinator {
         if (hourlyEnabled === false && payload?.preview !== true) {
           result = { ok: true, skipped: true, reason: "hourly_rubric_disabled" };
         } else {
-          result = await runHourlyTrend(this, payload, { groqGenerate, geminiGenerate, telegram });
+          result = await runHourlyTrend(this, payload, { groqGenerate, geminiGenerate, tavilySearch, telegram });
           if (result.preview && result.session_id) {
             await this.ctx.storage.setAlarm(Date.now() + 3 * 60 * 1000);
           }
