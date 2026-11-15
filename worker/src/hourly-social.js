@@ -155,7 +155,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
       .slice(0, 12);
 
     if (!trends.length) {
-      await storage.put(slotKey, { status: "skipped", reason: "no_fresh_trends", created_at: new Date().toISOString() });
+      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "no_fresh_trends", created_at: new Date().toISOString() });
       await deps.telegram(env, "sendMessage", {
         chat_id: env.TELEGRAM_CHAT_ID,
         text: "В этот час не нашёл свежего подходящего тренда Threads. Ничего публиковать не стал."
@@ -194,7 +194,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
     });
     const candidate = parseJsonObject(generatedRaw);
     if (candidate.skip === true) {
-      await storage.put(slotKey, { status: "skipped", reason: String(candidate.reason || "no_safe_trend"), created_at: new Date().toISOString() });
+      if (!preview) await storage.put(slotKey, { status: "skipped", reason: String(candidate.reason || "no_safe_trend"), created_at: new Date().toISOString() });
       await deps.telegram(env, "sendMessage", {
         chat_id: env.TELEGRAM_CHAT_ID,
         text: "Тренды проверены, но подходящей безопасной темы для юмористического поста не нашлось. Публикацию пропустил."
@@ -205,7 +205,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
     const text = normalizeText(candidate.text);
     const selectedTrend = trends.find(item => item.id === String(candidate.trend_id));
     if (!selectedTrend) {
-      await storage.put(slotKey, { status: "skipped", reason: "unknown_trend_id", created_at: new Date().toISOString() });
+      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "unknown_trend_id", created_at: new Date().toISOString() });
       await deps.telegram(env, "sendMessage", {
         chat_id: env.TELEGRAM_CHAT_ID,
         text: "Черновик не удалось связать с реальным трендом Threads. Публикацию пропустил."
@@ -213,7 +213,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
       return { ok: true, skipped: true, reason: "unknown_trend_id" };
     }
     if (!isLocallySafe(text)) {
-      await storage.put(slotKey, { status: "skipped", reason: "local_safety_filter", created_at: new Date().toISOString() });
+      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "local_safety_filter", created_at: new Date().toISOString() });
       await deps.telegram(env, "sendMessage", {
         chat_id: env.TELEGRAM_CHAT_ID,
         text: "Черновик ежечасной рубрики не прошёл первичный фильтр безопасности или формата. Ничего не опубликовано."
@@ -234,7 +234,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
     });
     const moderation = parseJsonObject(moderationRaw);
     if (moderation.safe !== true) {
-      await storage.put(slotKey, { status: "skipped", reason: "ai_safety_filter", created_at: new Date().toISOString() });
+      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "ai_safety_filter", created_at: new Date().toISOString() });
       await deps.telegram(env, "sendMessage", {
         chat_id: env.TELEGRAM_CHAT_ID,
         text: "Юмористический черновик не прошёл смысловую проверку безопасности. Публикацию пропустил."
