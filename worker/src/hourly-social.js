@@ -329,9 +329,10 @@ const generationPrompt = [
       if (typeof deps.groqGenerate !== "function") throw new Error("Не подключён Groq с браузерным поиском для проверки фактов.");
       const grounded = await deps.groqGenerate(env, generationPrompt, {
         task: "hourly_verified_facts_generation",
+        model: "openai/gpt-oss-20b",
         maxAttempts: 1,
         temperature: 0.2,
-        maxOutputTokens: 1800,
+        maxOutputTokens: 1400,
         browserSearch: true,
         returnMetadata: true
       });
@@ -364,9 +365,10 @@ const generationPrompt = [
         ].join("\\n");
         const recovered = await deps.groqGenerate(env, recoveryPrompt, {
           task: "hourly_verified_facts_recovery",
+          model: "openai/gpt-oss-20b",
           maxAttempts: 1,
           temperature: 0.2,
-          maxOutputTokens: 1800,
+          maxOutputTokens: 1400,
           browserSearch: true,
           returnMetadata: true
         });
@@ -435,9 +437,10 @@ const generationPrompt = [
         const repairPrompt = generationPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ФАКТЧЕК. Подготовь заново ровно пять фактов и укажи только реальные source_urls из браузерного поиска Groq. Исправь ошибки: " + issues.join(" ") + " Не выдумывай ссылки и утверждения.";
         const repairedRaw = await deps.groqGenerate(env, repairPrompt, {
           task: "hourly_verified_facts_recheck",
+          model: "openai/gpt-oss-20b",
           maxAttempts: 1,
           temperature: 0.1,
-          maxOutputTokens: 1800,
+          maxOutputTokens: 1400,
           browserSearch: true,
           returnMetadata: true
         });
