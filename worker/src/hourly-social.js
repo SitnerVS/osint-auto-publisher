@@ -353,7 +353,7 @@ const generationPrompt = [
       });
     }
     const groundedSources = sourceInventory.map(item => item.url);
-    if (groundedSources.length < 10) throw new Error("Внешний поиск вернул меньше десяти независимых доменов; найдено: " + groundedSources.length + ". Подготовка остановлена.");
+    if (groundedSources.length < 2) throw new Error("Внешний поиск вернул меньше двух независимых доменов; найдено: " + groundedSources.length + ". Подготовка остановлена.");
     const sourceEvidence = sourceInventory.map(item =>
       "[" + item.id + "] ДОМЕН: " + item.host + "\nЗАГОЛОВОК: " + item.title +
       "\nURL: " + item.url + "\nФРАГМЕНТ: " + item.content.slice(0, 1100)
