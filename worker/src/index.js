@@ -1055,21 +1055,6 @@ export default {
 
       if (update.callback_query) {
         const callback = update.callback_query;
-        // Telegram requires callback acknowledgements within a short deadline.
-        // Acknowledge before any coordinator, Gemini, or Threads network work.
-        const callbackChatForAck = callback.message?.chat;
-        const callbackUserForAck = String(callback.from?.id || "");
-        const callbackAllowedForAck = isAuthorizedChat(callbackChatForAck, env) &&
-          callbackUserForAck === String(env.TELEGRAM_CHAT_ID || "");
-        try {
-            callback_query_id: callback.id,
-            text: callbackAllowedForAck ? "Принято. Выполняю..." : "Нет доступа",
-            ...(!callbackAllowedForAck ? { show_alert: true } : {})
-          });
-        } catch (ackError) {
-          // A stale callback must not abort the actual command.
-          console.warn("Telegram callback acknowledgement failed; continuing:", ackError.message);
-        }
         const callbackChat = callback.message?.chat;
         const callbackUserId = String(callback.from?.id || "");
         const callbackChatId = String(callbackChat?.id || "");
@@ -1077,22 +1062,31 @@ export default {
           callbackUserId === String(env.TELEGRAM_CHAT_ID || "");
         const data = String(callback.data || "");
 
-        if (data === "hourly_toggle" || data === "hourly_refresh" || data.startsWith("menu:") || data.startsWith("humor:")) {
-          if (!callbackAllowed) {
-          } else if (data === "hourly_toggle" || data === "hourly_refresh") {
+        // Telegram callback queries must be acknowledged immediately, before
+        // coordinator/Gemini/Threads calls that may take longer than Telegram's deadline.
+        try {
+          await telegram(env, "answerCallbackQuery", {
+            callback_query_id: callback.id,
+            text: callbackAllowed ? "Принято. Выполняю..." : "Нет доступа",
+            ...(!callbackAllowed ? { show_alert: true } : {})
+          });
+        } catch (ackError) {
+          // An expired callback acknowledgement must never prevent command execution.
+          console.warn("Telegram callback acknowledgement failed; continuing:", ackError.message);
+        }
+
+        if (callbackAllowed) {
+          if (data === "hourly_toggle" || data === "hourly_refresh") {
             const status = await callCoordinator(env, "/hourly-settings", {
               action: data === "hourly_toggle" ? "toggle" : "get",
               user_id: callbackUserId, chat_id: callbackChatId
-            });
-              callback_query_id: callback.id,
-              text: data === "hourly_toggle" ? (status.enabled ? "Ежечасный юмор включён" : "Ежечасный юмор выключен") : "Меню обновлено"
             });
             await sendMainMenu(env, callbackChatId, callbackUserId, callback.message.message_id);
           } else if (data.startsWith("menu:")) {
             await runMenuAction(env, data.slice(5), callbackUserId, callbackChatId);
           } else if (data === "humor:start") {
             await callCoordinator(env, "/humor-topic", { action: "start", user_id: callbackUserId, chat_id: callbackChatId });
-            await telegram(env, "sendMessage", { chat_id: callbackChatId, text: "Напиши тему юморной новости одним сообщением. Я подготовлю пять разных шуток — с неожиданными поворотами и панчлайнами. Ничего не будет опубликовано, пока ты не выберешь вариант." });
+            await telegram(env, "sendMessage", { chat_id: callbackChatId, text: "Напиши тему юморной новости одним сообщением. Я подготовлю до пяти разных шуток — с неожиданными поворотами и панчлайнами. Ничего не будет опубликовано, пока ты не выберешь вариант." });
           } else if (data.startsWith("humor:regen:")) {
             const sessionId = data.split(":")[2] || "";
             const result = await callCoordinator(env, "/humor-topic", { action: "regenerate", session_id: sessionId, user_id: callbackUserId, chat_id: callbackChatId });
@@ -1119,9 +1113,9 @@ export default {
             const sessionId = data.split(":")[2] || "";
             await callCoordinator(env, "/humor-topic", { action: "cancel", session_id: sessionId, user_id: callbackUserId, chat_id: callbackChatId });
             await telegram(env, "editMessageText", { chat_id: callbackChatId, message_id: callback.message.message_id, text: "Генерация юморной новости отменена." });
+          } else if (!data.startsWith("humor:")) {
+            await callCoordinator(env, "/callback", { callback });
           }
-        } else {
-          await callCoordinator(env, "/callback", { callback });
         }
       }
 
