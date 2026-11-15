@@ -1294,11 +1294,25 @@ export default {
           });
           console.log("Scheduled editorial approval workflow started:", editorialResult);
         }
-        const hourlyResult = await callCoordinator(env, "/hourly-trend", {
-          scheduled_at: controller.scheduledTime,
-          bootstrap: String(env.HOURLY_BOOTSTRAP_PUBLISH || "false").toLowerCase() === "true"
+        const hourlyState = await callCoordinator(env, "/hourly-expire", {
+          user_id: env.TELEGRAM_CHAT_ID, chat_id: env.TELEGRAM_CHAT_ID
         });
-        console.log("Hourly social publishing workflow finished:", hourlyResult);
+        if (hourlyState.active) {
+          console.log("Hourly humor is awaiting the user's choice:", hourlyState.active.session_id);
+        } else if (localTime.endsWith(":00")) {
+          const hourlyResult = await callCoordinator(env, "/hourly-trend", {
+            scheduled_at: controller.scheduledTime, manual: true, preview: true
+          });
+          if (hourlyResult.preview && hourlyResult.session_id) {
+            await telegram(env, "sendMessage", hourlyVariantsPayload(env.TELEGRAM_CHAT_ID, hourlyResult));
+            console.log("Hourly humor options sent for approval:", hourlyResult.session_id);
+          } else {
+            await telegram(env, "sendMessage", {
+              chat_id: env.TELEGRAM_CHAT_ID,
+              text: "Не удалось подготовить ежечасную пятёрку. Причина: " + String(hourlyResult.reason || hourlyResult.error || "неизвестная ошибка")
+            });
+          }
+        }
       } catch (error) {
         console.error("Scheduled social workflow failed:", error.message);
         try {
@@ -1587,6 +1601,9 @@ export class ApprovalCoordinator {
           result = { ok: true, skipped: true, reason: "hourly_rubric_disabled" };
         } else {
           result = await runHourlyTrend(this, payload, { groqGenerate, telegram });
+          if (result.preview && result.session_id) {
+            await this.ctx.storage.setAlarm(Date.now() + 10 * 60 * 1000);
+          }
         }
       } else if (path === "/hourly-expire") {
         const expectedId = String(this.env.TELEGRAM_CHAT_ID || "");
