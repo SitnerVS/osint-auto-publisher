@@ -391,18 +391,7 @@ const generationPrompt = [
       const validationIssues = items => {
         const issues = [];
         if (items.length !== 5) issues.push("Нужно ровно пять объектов; сейчас: " + items.length + ".");
-        const stalePhrases = [
-          /инфоцыган\w*.{0,45}(?:продают|обещают|измеряют)/iu,
-          /коуч\w*.{0,45}(?:продают|обещают|измеряют)/iu,
-          /гуру.{0,45}(?:продают|обещают|измеряют)/iu,
-          /псевдо.?эксперт\w*.{0,45}(?:лайк|знани)/iu,
-          /масштабировани\w*.{0,35}(?:мышлени|мозг)/iu,
-          /(?:линейк\w*|воронк\w*|wifi|вай.?фай|воздух)/iu
-        ];
         items.forEach((item, index) => {
-          if (stalePhrases.some(pattern => pattern.test(item.text))) {
-            issues.push("Вариант " + (index + 1) + ": повторяет уже отвергнутый шаблон — придумай совершенно другую ситуацию.");
-          }
           const failure = localSafetyFailure(item.text);
           if (failure) issues.push("Вариант " + (index + 1) + ": " + failure + ".");
           const wordCount = item.text.trim().split(/\s+/u).filter(Boolean).length;
