@@ -242,6 +242,12 @@ async function geminiGenerate(env, prompt, options = {}) {
 
   console.log("Gemini generation successful:", options.task || "generation");
 
+  if (options.returnMetadata === true) {
+    return {
+      text: answer,
+      groundingMetadata: result.candidates?.[0]?.groundingMetadata || null
+    };
+  }
   return answer;
 }
 
@@ -1531,7 +1537,7 @@ export class ApprovalCoordinator {
         if (hourlyEnabled === false && payload?.preview !== true) {
           result = { ok: true, skipped: true, reason: "hourly_rubric_disabled" };
         } else {
-          result = await runHourlyTrend(this, payload, { groqGenerate, telegram });
+          result = await runHourlyTrend(this, payload, { groqGenerate, geminiGenerate, telegram });
           if (result.preview && result.session_id) {
             await this.ctx.storage.setAlarm(Date.now() + 3 * 60 * 1000);
           }
