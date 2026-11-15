@@ -121,7 +121,16 @@ export async function runHourlyTrend(coordinator, payload, deps) {
     const trendsResponse = await fetch(trendsUrl.toString());
     const trendsResult = await trendsResponse.json().catch(() => ({}));
     if (!trendsResponse.ok) {
-      throw new Error(trendsResult.error?.message || "Threads trends API failed: " + trendsResponse.status);
+      const apiError = trendsResult.error || {};
+      const details = [
+        "HTTP " + trendsResponse.status,
+        apiError.message || "Threads trends API failed",
+        apiError.type ? "type=" + apiError.type : "",
+        apiError.code !== undefined ? "code=" + apiError.code : "",
+        apiError.error_subcode !== undefined ? "subcode=" + apiError.error_subcode : "",
+        apiError.fbtrace_id ? "fbtrace_id=" + apiError.fbtrace_id : ""
+      ].filter(Boolean).join("; ");
+      throw new Error("Threads trends API: " + details);
     }
 
     const rawTrends = Array.isArray(trendsResult.data)
