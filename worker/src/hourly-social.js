@@ -247,8 +247,8 @@ const generationPrompt =
       "Не оскорбляй женщин и детей, не унижай человеческое достоинство, не используй травлю, дискриминацию, ненависть, угрозы, призывы к насилию и шутки за счёт жертв трагедий. Политическая сатира допустима в законных рамках. " +
       "Без хештегов, ссылок, упоминаний и эмодзи. Не повторяй прошлые публикации. " +
       "ФОРМАТ ОТВЕТА — ОБЫЧНЫЙ ТЕКСТ, НЕ JSON: первая строка строго TREND_ID: и точный ID выбранного тренда; следующие пять строк — по одной шутке без нумерации, кавычек и пояснений. Никакого другого текста. " +
-      "ТРЕНДЫ THREADS: " + JSON.stringify(trends) + "\\n\\n" +
-      "ПРЕДЫДУЩИЕ ТЕМЫ OSINTNER: " + JSON.stringify(editorialHistory) + "\\n\\n" +
+      "ТРЕНДЫ THREADS: " + JSON.stringify(trends) + "\n\n" +
+      "ПРЕДЫДУЩИЕ ТЕМЫ OSINTNER: " + JSON.stringify(editorialHistory) + "\n\n" +
       "ОПУБЛИКОВАННЫЕ ШУТКИ — НЕ ПОВТОРЯТЬ: " + JSON.stringify(recentFunnyHistory);
     const generatedRaw = await deps.groqGenerate(env, generationPrompt, {
       task: "hourly_social_candidates",
@@ -256,16 +256,16 @@ const generationPrompt =
       temperature: 0.9,
       maxOutputTokens: 700
     });
-    const generatedLines = String(generatedRaw || "").split(/\\r?\\n/).map(line => line.trim()).filter(Boolean);
-    const trendLine = generatedLines.find(line => /^TREND_ID\\s*:/i.test(line));
-    const trendId = trendLine ? trendLine.replace(/^TREND_ID\\s*:\\s*/i, "").trim() : "";
+    const generatedLines = String(generatedRaw || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const trendLine = generatedLines.find(line => /^TREND_ID\s*:/i.test(line));
+    const trendId = trendLine ? trendLine.replace(/^TREND_ID\s*:\s*/i, "").trim() : "";
     const candidates = generatedLines
-      .filter(line => !/^TREND_ID\\s*:/i.test(line) && !/^SKIP\\s*:/i.test(line))
-      .map(line => line.replace(/^(?:[-*•]|\\d+[.)])\\s*/, "").replace(/^["«]|["»]$/g, "").trim())
+      .filter(line => !/^TREND_ID\s*:/i.test(line) && !/^SKIP\s*:/i.test(line))
+      .map(line => line.replace(/^(?:[-*•]|\d+[.)])\s*/, "").replace(/^["«]|["»]$/g, "").trim())
       .filter(Boolean)
       .slice(0, 5);
-    if (/^SKIP\\s*:/i.test(generatedLines[0] || "") || !trendId || !candidates.length) {
-      const skipReason = generatedLines[0]?.replace(/^SKIP\\s*:\\s*/i, "") || "Модель не вернула варианты в заданном формате";
+    if (/^SKIP\s*:/i.test(generatedLines[0] || "") || !trendId || !candidates.length) {
+      const skipReason = generatedLines[0]?.replace(/^SKIP\s*:\s*/i, "") || "Модель не вернула варианты в заданном формате";
       if (!preview) await storage.put(slotKey, { status: "skipped", reason: "no_safe_trend", detail: skipReason, created_at: new Date().toISOString() });
       return { ok: true, skipped: true, reason: "no_safe_trend", detail: skipReason };
     }
@@ -288,7 +288,7 @@ const generationPrompt =
       maxOutputTokens: 120
     });
     const reviewedText = normalizeText(reviewedRaw).replace(/^["«]|["»]$/g, "").trim();
-    if (!reviewedText || /^SKIP(?:\\s|$)/i.test(reviewedText)) {
+    if (!reviewedText || /^SKIP(?:\s|$)/i.test(reviewedText)) {
       const skipReason = "Редактор не выбрал достаточно смешную и естественную фразу";
       if (!preview) await storage.put(slotKey, { status: "skipped", reason: "editorial_quality_rejected", detail: skipReason, created_at: new Date().toISOString() });
       return { ok: true, skipped: true, reason: "editorial_quality_rejected", detail: skipReason, trend: selectedTrend.name, candidates };
