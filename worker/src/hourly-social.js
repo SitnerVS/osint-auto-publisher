@@ -254,7 +254,7 @@ const generationPrompt =
       task: "hourly_social_candidates",
       maxAttempts: 1,
       temperature: 0.9,
-      maxOutputTokens: 700
+      maxOutputTokens: 4096
     });
     const generatedLines = String(generatedRaw || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
     const trendLine = generatedLines.find(line => /^TREND_ID\s*:/i.test(line));
@@ -285,7 +285,7 @@ const generationPrompt =
       task: "hourly_social_editorial_review",
       maxAttempts: 1,
       temperature: 0.35,
-      maxOutputTokens: 120
+      maxOutputTokens: 2048
     });
     const reviewedText = normalizeText(reviewedRaw).replace(/^["«]|["»]$/g, "").trim();
     if (!reviewedText || /^SKIP(?:\s|$)/i.test(reviewedText)) {
