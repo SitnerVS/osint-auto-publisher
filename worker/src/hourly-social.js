@@ -316,7 +316,7 @@ const generationPrompt = [
       "Подбирай интересные, малоизвестные, но хорошо документированные факты. Не ищи исключительно редкие или сенсационные сведения: если факт трудно подтвердить, замени его более доступным и надёжно описанным.",
       "Охвати пять разных областей, например: природа и животные, космос, история, география, технологии, медицина, язык, культура, архитектура или наука. Не зацикливайся на одной области.",
       "Каждый факт — одно утвердительное предложение на русском языке, максимум 12 слов. Без вопросов, оценок, вступлений, пояснений и эмоциональных слов.",
-      "Обязательно используй встроенный браузерный поиск Groq (browser_search). Для каждого факта найди минимум два независимых подтверждения в результатах поиска. Подходят первичные научные публикации, университеты, государственные учреждения, музеи, научные журналы и авторитетные энциклопедии.",
+      "Обязательно используй Google Search через Gemini. Для каждого факта найди минимум два независимых подтверждения в результатах поиска. Подходят первичные научные публикации, университеты, государственные учреждения, музеи, научные журналы и авторитетные энциклопедии.",
       "Не используй Википедию, форумы, рекламные сайты, агрегаторы и непроверенные блоги. Не делай выводов, которых прямо не подтверждают источники.",
       "Если у факта нет двух независимых подтверждений, не включай его — найди другой факт. Не придумывай цифры, даты, имена, причинно-следственные связи или URL. Не выдавай гипотезы и легенды за установленные факты.",
       "Не повторяй недавние публикации: " + JSON.stringify(recentFunnyHistory) + ".",
@@ -326,24 +326,26 @@ const generationPrompt = [
     let rawResponse = "";
     let groundedSources = [];
     if (preview) {
-      if (typeof deps.groqGenerate !== "function") throw new Error("Не подключён Groq с браузерным поиском для проверки фактов.");
-      const grounded = await deps.groqGenerate(env, generationPrompt, {
+      if (typeof deps.geminiGenerate !== "function") throw new Error("Не подключён Gemini с поиском Google для проверки фактов.");
+      const grounded = await deps.geminiGenerate(env, generationPrompt, {
         task: "hourly_verified_facts_generation",
-        model: "openai/gpt-oss-20b",
+        model: "gemini-3.5-flash-lite",
         maxAttempts: 1,
         temperature: 0.2,
         maxOutputTokens: 1400,
-        browserSearch: true,
+        googleSearch: true,
         returnMetadata: true
       });
       rawResponse = String(grounded?.text || "").trim();
       groundedSources = Array.isArray(grounded?.sources) ? grounded.sources : [];
     } else {
-      const generatedRaw = await deps.groqGenerate(env, generationPrompt, {
+      const generatedRaw = await deps.geminiGenerate(env, generationPrompt, {
         task: "hourly_fact_generation",
-        maxAttempts: 2,
+        model: "gemini-3.5-flash-lite",
+        maxAttempts: 1,
         temperature: 0.2,
-        maxOutputTokens: 800
+        maxOutputTokens: 800,
+        googleSearch: true
       });
       rawResponse = String(generatedRaw || "").trim();
     }
@@ -358,18 +360,18 @@ const generationPrompt = [
         const recoveryPrompt = [
           "Подготовь ровно пять интересных, малоизвестных, но хорошо документированных фактов для русскоязычного Threads.",
           "Выбери факты из пяти разных областей. Не ищи редкие сенсации: используй темы, по которым легко найти надёжные публикации — особенности животных, космос, географические явления, исторические артефакты, открытия науки или технологии.",
-          "Для каждого факта обязательны два независимых точных URL из результатов browser_search. Используй официальные государственные и университетские сайты, научные журналы, музеи и авторитетные энциклопедии. Не используй Википедию, форумы, рекламные сайты и непроверенные блоги.",
+          "Для каждого факта обязательны два независимых точных URL из результатов Google Search Gemini. Используй официальные государственные и университетские сайты, научные журналы, музеи и авторитетные энциклопедии. Не используй Википедию, форумы, рекламные сайты и непроверенные блоги.",
           "Если кандидат не подтверждается двумя источниками, замени его другим. Не требуй исключительной редкости. Не выдумывай факты, детали и ссылки.",
           "Каждый текст — одно утвердительное предложение на русском языке, не более 12 слов. Без вопросов, ссылок в тексте, хештегов, упоминаний и эмодзи.",
           "Верни только JSON: {\"variants\":[{\"text\":\"...\",\"source_urls\":[\"URL 1\",\"URL 2\"]}]}. Ровно пять объектов. Никаких пояснений или отказов."
         ].join("\\n");
-        const recovered = await deps.groqGenerate(env, recoveryPrompt, {
+        const recovered = await deps.geminiGenerate(env, recoveryPrompt, {
           task: "hourly_verified_facts_recovery",
-          model: "openai/gpt-oss-20b",
+          model: "gemini-3.5-flash-lite",
           maxAttempts: 1,
           temperature: 0.2,
           maxOutputTokens: 1400,
-          browserSearch: true,
+          googleSearch: true,
           returnMetadata: true
         });
         rawResponse = String(recovered?.text || "").trim();
@@ -426,8 +428,8 @@ const generationPrompt = [
           const verifiedDomains = new Set(verifiedUrls.map(url => {
             try { return new URL(url).hostname.toLowerCase().replace(/^www\./u, ""); } catch (_) { return ""; }
           }).filter(Boolean));
-          if (verifiedDomains.size < 2) issues.push("Вариант " + (index + 1) + ": нужны два независимых авторитетных источника из результатов браузерного поиска Groq.");
-          if (item.source_urls.some(url => !groundedSources.includes(url))) issues.push("Вариант " + (index + 1) + ": ссылка не подтверждена браузерным поиском Groq.");
+          if (verifiedDomains.size < 2) issues.push("Вариант " + (index + 1) + ": нужны два независимых авторитетных источника из результатов Google Search Gemini.");
+          if (item.source_urls.some(url => !groundedSources.includes(url))) issues.push("Вариант " + (index + 1) + ": ссылка не подтверждена поиском Google Gemini.");
         });
         return issues;
       };
@@ -435,13 +437,13 @@ const generationPrompt = [
       if (issues.length) {
         console.warn("Hourly preview validation failed; requesting one repair pass:", issues);
         const repairPrompt = generationPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ФАКТЧЕК. Подготовь заново ровно пять фактов и укажи только реальные source_urls из браузерного поиска Groq. Исправь ошибки: " + issues.join(" ") + " Не выдумывай ссылки и утверждения.";
-        const repairedRaw = await deps.groqGenerate(env, repairPrompt, {
+        const repairedRaw = await deps.geminiGenerate(env, repairPrompt, {
           task: "hourly_verified_facts_recheck",
-          model: "openai/gpt-oss-20b",
+          model: "gemini-3.5-flash-lite",
           maxAttempts: 1,
           temperature: 0.1,
           maxOutputTokens: 1400,
-          browserSearch: true,
+          googleSearch: true,
           returnMetadata: true
         });
         groundedSources = Array.isArray(repairedRaw?.sources) ? repairedRaw.sources : [];
