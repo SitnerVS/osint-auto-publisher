@@ -498,7 +498,7 @@ export default {
               "/test — тест согласования\n" +
               "/generate — генерация новой темы\n" +
               "/publish_retry ID — безопасно повторить попытку Threads\n" +
-              "/threads_status — проверить подключение Threads\n" +
+              "/threads_status — проверить подключение Threads\n" +\n              "/threads_publish_check — диагностика прав публикации Threads\n" +
               "/threads_trends_test — безопасно проверить доступ к трендам Threads\n" +
               "/hourly_preview — проверить генерацию без публикации\n" +
               "/hourly_start — включить рубрику и запустить первую публикацию\n" +
@@ -741,6 +741,37 @@ export default {
               ? "THREADS STATUS\nПодключённый аккаунт: @" + String(status.username || "имя не получено") + "\nТокен: " + (status.expired ? "истёк" : "действителен") + (expiry ? "\nСрок действия до: " + expiry : "")
               : "THREADS STATUS\nАккаунт Threads пока не авторизован. Для подключения открой ссылку:\nhttps://osint-telegram-gateway-staging.vssitner.workers.dev/threads/connect"
           });
+        }
+
+        else if (command === "/threads_publish_check") {
+          await telegram(env, "sendMessage", {
+            chat_id: chatId,
+            text: "Проверяю ID профиля Threads и разрешения токена. Ничего не публикую..."
+          });
+          try {
+            const result = await callCoordinator(env, "/threads/publish-check", {
+              user_id: userId,
+              chat_id: chatId
+            });
+            const scopes = Array.isArray(result.scopes) ? result.scopes.join(", ") : "не удалось получить";
+            await telegram(env, "sendMessage", {
+              chat_id: chatId,
+              text: "ПРОВЕРКА THREADS PUBLISH\n" +
+                "Профиль: " + (result.username ? "@" + result.username : "не определён") + "\n" +
+                "ID сохранённого токена совпадает с ID профиля: " + (result.user_id_matches === true ? "ДА" : result.user_id_matches === false ? "НЕТ" : "не удалось проверить") + "\n" +
+                "threads_basic: " + (result.has_basic === true ? "есть" : result.has_basic === false ? "НЕТ" : "неизвестно") + "\n" +
+                "threads_content_publish: " + (result.has_publish === true ? "есть" : result.has_publish === false ? "НЕТ" : "неизвестно") + "\n" +
+                "Разрешения токена: " + scopes + "\n" +
+                (result.diagnostic_error ? "Диагностика: " + result.diagnostic_error : "") +
+                "\n\nПубликация не выполнялась."
+            });
+          } catch (error) {
+            await telegram(env, "sendMessage", {
+              chat_id: chatId,
+              text: "Проверка Threads не выполнена: " + String(error.message || error).slice(0, 500) +
+                "\n\nПубликация не выполнялась."
+            });
+          }
         }
 
         else if (command === "/publish_retry") {
@@ -1060,6 +1091,64 @@ export class ApprovalCoordinator {
             expires_at: expiresAt || null,
             expired: !expiresAt || expiresAt <= Date.now()
           };
+        }
+      } else if (path === "/threads/publish-check") {
+        const expectedId = String(this.env.TELEGRAM_CHAT_ID || "");
+        if (String(payload.chat_id || "") !== expectedId || String(payload.user_id || "") !== expectedId) {
+          result = { ok: false, error: "Unauthorized" };
+        } else {
+          const token = await this.ctx.storage.get("threads:oauth:token");
+          if (!token?.access_token || !token?.user_id || Number(token.expires_at || 0) <= Date.now()) {
+            result = { ok: false, error: "Threads token missing or expired" };
+          } else {
+            let profileId = "";
+            let username = "";
+            let diagnosticError = "";
+            const profileUrl = new URL("https://graph.threads.net/v1.0/me");
+            profileUrl.searchParams.set("fields", "id,username");
+            profileUrl.searchParams.set("access_token", token.access_token);
+            const profileResponse = await fetch(profileUrl.toString());
+            const profileData = await profileResponse.json().catch(() => ({}));
+            if (profileResponse.ok) {
+              profileId = String(profileData.id || "");
+              username = String(profileData.username || "");
+            } else {
+              diagnosticError = "Profile lookup: " + String(profileData.error?.message || profileResponse.status).slice(0, 250);
+            }
+
+            let scopes = [];
+            let hasBasic = null;
+            let hasPublish = null;
+            if (this.env.THREADS_APP_ID && this.env.THREADS_APP_SECRET) {
+              try {
+                const debugUrl = new URL("https://graph.facebook.com/debug_token");
+                debugUrl.searchParams.set("input_token", token.access_token);
+                debugUrl.searchParams.set("access_token", this.env.THREADS_APP_ID + "|" + this.env.THREADS_APP_SECRET);
+                const debugResponse = await fetch(debugUrl.toString());
+                const debugData = await debugResponse.json().catch(() => ({}));
+                if (debugResponse.ok && debugData.data) {
+                  scopes = Array.isArray(debugData.data.scopes) ? debugData.data.scopes.map(String) : [];
+                  hasBasic = scopes.includes("threads_basic");
+                  hasPublish = scopes.includes("threads_content_publish");
+                } else {
+                  diagnosticError += (diagnosticError ? "; " : "") + "Token debugger: " + String(debugData.error?.message || debugResponse.status).slice(0, 250);
+                }
+              } catch (error) {
+                diagnosticError += (diagnosticError ? "; " : "") + "Token debugger: " + String(error.message || error).slice(0, 200);
+              }
+            } else {
+              diagnosticError += (diagnosticError ? "; " : "") + "App credentials unavailable for permission inspection";
+            }
+            result = {
+              ok: true,
+              username,
+              user_id_matches: profileId ? profileId === String(token.user_id) : null,
+              has_basic: hasBasic,
+              has_publish: hasPublish,
+              scopes,
+              diagnostic_error: diagnosticError
+            };
+          }
         }
       } else if (path === "/publish-retry") {
         const expectedId = String(this.env.TELEGRAM_CHAT_ID || "");
