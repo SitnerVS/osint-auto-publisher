@@ -414,6 +414,24 @@ async function sendMainMenu(env, chatId, userId, messageId = null, welcome = fal
   }
 }
 
+function hourlyVariantsPayload(chatId, result, messageId = null) {
+  const lines = (result.variants || []).map((item, index) => (index + 1) + ". " + item.text).join("\n\n");
+  const keyboard = (result.variants || []).map((item, index) => [{
+    text: "Опубликовать вариант " + (index + 1),
+    callback_data: "hourly:publish:" + result.session_id + ":" + index
+  }]);
+  keyboard.push([{ text: "Отклонить всю пятёрку", callback_data: "hourly:reject:" + result.session_id }]);
+  const payload = {
+    chat_id: chatId,
+    text: "ЕЖЕЧАСНЫЙ ЮМОР — ВЫБЕРИ ОДИН ВАРИАНТ\n" +
+      "Тема: " + (result.trend || "Свободная тема") + "\n" +
+      "На выбор — 10 минут. Публикация только после твоего нажатия.\n\n" + lines,
+    reply_markup: { inline_keyboard: keyboard }
+  };
+  if (messageId) payload.message_id = messageId;
+  return payload;
+}
+
 function humorVariantsPayload(chatId, result, messageId = null) {
   const lines = result.variants.map((item, index) => (index + 1) + ". " + item.text).join("\n\n");
   const keyboard = result.variants.map((item, index) => [{
@@ -458,23 +476,11 @@ async function runMenuAction(env, action, userId, chatId) {
   if (action === "hourly_preview") {
     const result = await callCoordinator(env, "/hourly-trend", { scheduled_at: Date.now(), manual: true, preview: true });
     if (result.preview && Array.isArray(result.variants) && result.session_id) {
-      const lines = result.variants.map((item, index) => (index + 1) + ". " + item.text).join("\n\n");
-      const keyboard = result.variants.map((item, index) => [{
-        text: "Мне нравится вариант " + (index + 1),
-        callback_data: "hourly:like:" + result.session_id + ":" + index
-      }]);
-      keyboard.push([{ text: "🔄 Новая пятёрка", callback_data: "menu:hourly_preview" }]);
-      await telegram(env, "sendMessage", {
-        chat_id: chatId,
-        text: "ПРЕДПРОСМОТР ЕЖЕЧАСНОГО ЮМОРА\nТренд: " + result.trend + "\n\n" + lines +
-          "\n\nОтметь понравившийся вариант — он станет ориентиром для следующих генераций. Ничего не опубликовано.",
-        reply_markup: { inline_keyboard: keyboard }
-      });
+      await telegram(env, "sendMessage", hourlyVariantsPayload(chatId, result));
     } else {
       await telegram(env, "sendMessage", {
         chat_id: chatId,
-        text: "Предпросмотр не получен. Причина: " + String(result.reason || result.error || "нет подходящего варианта") +
-          "\nПубликации не было."
+        text: "Не удалось подготовить пятёрку. Причина: " + String(result.reason || result.error || "неизвестная ошибка")
       });
     }
     return;
@@ -856,48 +862,12 @@ export default {
         }
 
         else if (command === "/hourly_preview") {
-          await telegram(env, "sendMessage", {
-            chat_id: chatId,
-            text: "Запускаю безопасный предпросмотр: получу тренды, создам текст и проверю его. Публикация и изменение истории слотов отключены..."
-          });
-          try {
-            const result = await callCoordinator(env, "/hourly-trend", {
-              scheduled_at: Date.now(),
-              manual: true,
-              preview: true
-            });
-            if (result.preview) {
-              await telegram(env, "sendMessage", {
-                chat_id: chatId,
-                text: "ПРЕДПРОСМОТР ЕЖЕЧАСНОЙ РУБРИКИ\n\nТренд: " + result.trend + "\n\n" + result.text + "\n\nПроверки пройдены. Публикации не было."
-              });
-            } else {
-              const reasons = {
-                threads_publishing_disabled: "Публикации Threads отключены в настройках Worker.",
-                threads_not_connected: "Аккаунт Threads не подключён или токен истёк.",
-                no_fresh_trends: "Не найдено свежих трендов.",
-                no_safe_trend: "Не нашлось подходящей безопасной темы.",
-                local_safety_filter: "Черновик не прошёл локальную проверку безопасности."
-              };
-              const diagnostic = Array.isArray(result.candidates) && result.candidates.length
-                ? "\n\nВарианты, которые отклонил редактор:\n" + result.candidates.map((item, index) => (index + 1) + ". " + item).join("\n")
-                : "";
-              await telegram(env, "sendMessage", {
-                chat_id: chatId,
-                text: "ПРЕДПРОСМОТР НЕ ПОЛУЧЕН.\nТренд: " + String(result.trend || "—") +
-                  "\nПричина: " +
-                  (reasons[result.reason] || String(result.detail || result.reason || result.error || "неизвестная ошибка")).slice(0, 500) +
-                  diagnostic +
-                  "\n\nПубликации не было."
-              });
-            }
-          } catch (error) {
-            await telegram(env, "sendMessage", {
-              chat_id: chatId,
-              text: "Не удалось выполнить предпросмотр.\nПричина: " +
-                String(error.message || error).slice(0, 700) +
-                "\n\nПубликации не было."
-            });
+          await telegram(env, "sendMessage", { chat_id: chatId, text: "Готовлю пять вариантов. Публикация будет только после твоего выбора..." });
+          const result = await callCoordinator(env, "/hourly-trend", { scheduled_at: Date.now(), manual: true, preview: true });
+          if (result.preview && result.session_id) {
+            await telegram(env, "sendMessage", hourlyVariantsPayload(chatId, result));
+          } else {
+            await telegram(env, "sendMessage", { chat_id: chatId, text: "Не удалось подготовить пятёрку. Причина: " + String(result.reason || result.error || "неизвестная ошибка") });
           }
         }
 
@@ -1245,17 +1215,27 @@ export default {
             } else if (result.failed) {
               await telegram(env, "sendMessage", { chat_id: callbackChatId, text: "Публикация не выполнена. Повторно нажимать вариант не нужно.\n" + String(result.error || "Проверь Threads вручную.").slice(0, 600) });
             }
-          } else if (data.startsWith("hourly:like:")) {
+          } else if (data.startsWith("hourly:publish:")) {
             const parts = data.split(":");
-            const result = await callCoordinator(env, "/hourly-preview-feedback", {
+            const result = await callCoordinator(env, "/hourly-select", {
               session_id: parts[2] || "", index: Number(parts[3]), user_id: callbackUserId, chat_id: callbackChatId
             });
             await telegram(env, "editMessageText", {
               chat_id: callbackChatId, message_id: callback.message.message_id,
-              text: result.saved
-                ? "ПРИНЯТО. Этот вариант сохранён как положительный пример стиля.\n\n" + result.text + "\n\nНичего не опубликовано."
-                : "Не удалось сохранить выбор: " + String(result.error || "подборка устарела")
+              text: result.published
+                ? "ОПУБЛИКОВАНО В THREADS\n\n" + result.text + (result.permalink ? "\n\n" + result.permalink : "")
+                : "Публикация не выполнена: " + String(result.error || "подборка устарела")
             });
+          } else if (data.startsWith("hourly:reject:")) {
+            const sessionId = data.split(":")[2] || "";
+            const result = await callCoordinator(env, "/hourly-reject", {
+              session_id: sessionId, user_id: callbackUserId, chat_id: callbackChatId
+            });
+            await telegram(env, "editMessageText", {
+              chat_id: callbackChatId, message_id: callback.message.message_id,
+              text: result.rejected ? "ПЯТЁРКА ОТКЛОНЕНА. Переходим к следующему часу." : "Не удалось отклонить: " + String(result.error || "подборка уже закрыта")
+            });
+
           } else if (data.startsWith("humor:cancel:")) {
             const sessionId = data.split(":")[2] || "";
             await callCoordinator(env, "/humor-topic", { action: "cancel", session_id: sessionId, user_id: callbackUserId, chat_id: callbackChatId });
@@ -1366,6 +1346,9 @@ export class ApprovalCoordinator {
       path !== "/threads/oauth/save-token" &&
       path !== "/hourly-trend" &&
       path !== "/hourly-settings" &&
+      path !== "/hourly-select" &&
+      path !== "/hourly-reject" &&
+      path !== "/hourly-expire" &&
       path !== "/humor-topic" &&
       path !== "/humor-select"
     ) {
@@ -1604,6 +1587,63 @@ export class ApprovalCoordinator {
           result = { ok: true, skipped: true, reason: "hourly_rubric_disabled" };
         } else {
           result = await runHourlyTrend(this, payload, { groqGenerate, telegram });
+        }
+      } else if (path === "/hourly-expire") {
+        const expectedId = String(this.env.TELEGRAM_CHAT_ID || "");
+        if (String(payload.chat_id || "") !== expectedId || String(payload.user_id || "") !== expectedId) {
+          result = { ok: false, error: "Unauthorized" };
+        } else {
+          const entries = await this.ctx.storage.list({ prefix: "social:hourly:preview:" });
+          let active = null;
+          for (const [key, session] of entries.entries()) {
+            if (session?.status !== "awaiting_choice") continue;
+            if (Number(session.expires_at || 0) <= Date.now()) {
+              await this.ctx.storage.put(key, { ...session, status: "expired", expired_at: new Date().toISOString() });
+            } else if (!active || Number(session.created_at_ms || Date.parse(session.created_at) || 0) > Number(active.created_at_ms || Date.parse(active.created_at) || 0)) {
+              active = { ...session, session_id: key.split(":").pop() };
+            }
+          }
+          result = { ok: true, active };
+        }
+      } else if (path === "/hourly-select" || path === "/hourly-reject") {
+        const expectedId = String(this.env.TELEGRAM_CHAT_ID || "");
+        if (String(payload.chat_id || "") !== expectedId || String(payload.user_id || "") !== expectedId) {
+          result = { ok: false, error: "Unauthorized" };
+        } else {
+          const key = "social:hourly:preview:" + String(payload.session_id || "");
+          const session = await this.ctx.storage.get(key);
+          if (!session || session.status !== "awaiting_choice" || Number(session.expires_at || 0) <= Date.now()) {
+            if (session?.status === "awaiting_choice") await this.ctx.storage.put(key, { ...session, status: "expired", expired_at: new Date().toISOString() });
+            result = { ok: true, published: false, rejected: false, error: "Время выбора истекло или подборка уже закрыта." };
+          } else if (path === "/hourly-reject") {
+            await this.ctx.storage.put(key, { ...session, status: "rejected", rejected_at: new Date().toISOString() });
+            result = { ok: true, rejected: true };
+          } else {
+            const selected = (session.variants || []).find(item => item.index === Number(payload.index));
+            const token = await this.ctx.storage.get("threads:oauth:token");
+            if (!selected) {
+              result = { ok: true, published: false, error: "Вариант не найден." };
+            } else if (!token?.access_token || !token?.user_id || Number(token.expires_at || 0) <= Date.now()) {
+              result = { ok: true, published: false, error: "Токен Threads отсутствует или истёк." };
+            } else {
+              await this.ctx.storage.put(key, { ...session, status: "publishing", selected_index: selected.index, publishing_started_at: new Date().toISOString() });
+              try {
+                const published = await publishThreads(this.env, token, selected.text);
+                const at = new Date().toISOString();
+                const history = await this.ctx.storage.get("social:hourly:history") || [];
+                history.push({ trend: session.trend, trend_id: "NONE", text: selected.text, threads_post_id: published.id, threads_permalink: published.permalink, published_at: at });
+                await this.ctx.storage.put("social:hourly:history", history.slice(-100));
+                const liked = await this.ctx.storage.get("social:hourly:liked") || [];
+                liked.push({ text: selected.text, trend: session.trend, liked_at: at });
+                await this.ctx.storage.put("social:hourly:liked", liked.slice(-30));
+                await this.ctx.storage.put(key, { ...session, status: "published", selected_index: selected.index, published_at: at, threads_post_id: published.id, threads_permalink: published.permalink });
+                result = { ok: true, published: true, text: selected.text, post_id: published.id, permalink: published.permalink };
+              } catch (error) {
+                await this.ctx.storage.put(key, { ...session, status: "failed", selected_index: selected.index, error: String(error.message || error).slice(0, 500) });
+                result = { ok: true, published: false, error: String(error.message || error) };
+              }
+            }
+          }
         }
       } else if (path === "/hourly-preview-feedback") {
         const expectedId = String(this.env.TELEGRAM_CHAT_ID || "");
