@@ -10,7 +10,7 @@ function normalizeText(value) {
   return String(value || "").replace(/\s+/g, " ").replace(/^["«]|["»]$/g, "").trim();
 }
 
-function isLocallySafe(text) {
+export function isLocallySafe(text) {
   if (!text || text.length < 25 || text.length > 260) return false;
   if (/[#@]|https?:\/\//i.test(text)) return false;
   const body = text.replace(/[.!?…]+[»”"']?$/u, "");
@@ -19,7 +19,7 @@ function isLocallySafe(text) {
   return !forbidden.test(text);
 }
 
-async function publishThreads(env, token, text) {
+export async function publishThreads(env, token, text) {
   const createUrl = new URL("https://graph.threads.net/v1.0/" + encodeURIComponent(token.user_id) + "/threads");
   const createForm = new URLSearchParams({
     media_type: "TEXT",
@@ -59,20 +59,83 @@ async function publishThreads(env, token, text) {
 }
 
 
+
+export async function generateHumorVariants(env, topic, previousTexts, geminiGenerate) {
+  const cleanTopic = normalizeText(topic).slice(0, 240);
+  if (!cleanTopic || cleanTopic.length < 2) throw new Error("Тема слишком короткая");
+  const previous = (Array.isArray(previousTexts) ? previousTexts : []).slice(-20);
+  const prompt =
+    "Ты — сильный автор короткой русскоязычной юмористической рубрики OSINTNER. " +
+    "Пользователь задал тему: " + JSON.stringify(cleanTopic) + ". " +
+    "Создай РОВНО ПЯТЬ разных вариантов одной короткой шутки для Threads. " +
+    "Требуется действительно смешной текст: неожиданный поворот, точная панч-линия, узнаваемая деталь, контраст или остроумная самоирония. " +
+    "Не пиши пять одинаковых вопросов, не используй шаблон «интересно, а…», не подменяй шутку банальным наблюдением и не объясняй, почему это смешно. " +
+    "Каждый вариант должен использовать отдельный комедийный механизм: 1) неожиданный поворот; 2) абсурдная, но точная аналогия; 3) самоирония; 4) псевдоофициальная формулировка с панчлайном; 5) перевёрнутое ожидание или короткая сатирическая деталь. " +
+    "Каждый текст — естественный разговорный русский, одна фраза и одно предложение, 45–220 символов, пригоден для самостоятельной публикации. " +
+    "Не делай тему новостью и не утверждай неподтверждённые факты: если тема не содержит фактической информации, используй вымышленную ситуацию, гипотезу, метафору или бытовую аналогию. " +
+    "Запрещены насилие, смерть, трагедии, катастрофы, преступления, травля, пошлость, сексуальные темы, сексизм, унижение, оскорбления, дискриминация, политика, религиозные и национальные конфликты, шутки о внешности, здоровье, возрасте, бедности и личных трагедиях. " +
+    "Не высмеивай конкретных людей или уязвимые группы. Без хештегов, ссылок, упоминаний и эмодзи. " +
+    "Варианты должны отличаться по смыслу и конструкции, не быть перефразировками друг друга или предыдущих публикаций. " +
+    "Верни строго JSON: {\"variants\":[{\"text\":\"...\",\"angle\":\"кратко\"}, ... ровно 5 объектов]}. " +
+    "Предыдущие публикации, которые нельзя повторять: " + JSON.stringify(previous);
+  const raw = await geminiGenerate(env, prompt, {
+    task: "manual_humor_variants",
+    temperature: 1.0,
+    maxOutputTokens: 1200
+  });
+  const parsed = parseJsonObject(raw);
+  if (!Array.isArray(parsed.variants) || parsed.variants.length !== 5) {
+    throw new Error("Gemini не вернул ровно пять вариантов. Нажми «Повторная генерация».");
+  }
+  const variants = parsed.variants.map((item, index) => ({
+    index,
+    text: normalizeText(item.text),
+    angle: normalizeText(item.angle || "")
+  }));
+  if (variants.some(item => !isLocallySafe(item.text))) {
+    throw new Error("Один или несколько вариантов не прошли первичный фильтр. Запроси новую пятёрку.");
+  }
+  const moderationPrompt =
+    "Проверь каждый из пяти коротких русских юмористических текстов на безопасность, уважительность и достоверность. " +
+    "Отклоняй насилие, смерть, трагедии, пошлость, сексуализацию, сексизм, унижение, травлю, оскорбления, дискриминацию, политику, религиозные и национальные конфликты, шутки о здоровье, внешности, возрасте, бедности и уязвимом положении. " +
+    "Отклоняй неподтверждённые утверждения, поданные как факты. Юмор не должен быть направлен против конкретных людей или групп. " +
+    "Верни строго JSON {\"results\":[{\"index\":0,\"safe\":true,\"reason\":\"...\"}, ... для всех пяти]}. Если есть сомнение, safe=false. " +
+    "Тексты: " + JSON.stringify(variants);
+  const moderationRaw = await geminiGenerate(env, moderationPrompt, {
+    task: "manual_humor_moderation",
+    temperature: 0.1,
+    maxOutputTokens: 500
+  });
+  const moderation = parseJsonObject(moderationRaw);
+  const results = Array.isArray(moderation.results) ? moderation.results : [];
+  const safeIndices = new Set(results.filter(item => item.safe === true).map(item => Number(item.index)));
+  if (safeIndices.size !== 5 || variants.some(item => !safeIndices.has(item.index))) {
+    throw new Error("Пятёрка не прошла смысловую проверку безопасности. Нажми «Повторная генерация».");
+  }
+  return variants;
+}
+
 export async function runHourlyTrend(coordinator, payload, deps) {
   const storage = coordinator.ctx.storage;
   const env = coordinator.env;
   const preview = payload?.preview === true;
+  const forceManual = payload?.force_manual === true;
 
   if (!preview && String(env.THREADS_PUBLISHING_ENABLED || "false").toLowerCase() !== "true") {
     return { ok: true, skipped: true, reason: "threads_publishing_disabled" };
   }
 
   const scheduledAt = Number(payload?.scheduled_at || Date.now());
-  const slot = new Date(scheduledAt).toISOString().slice(0, 13);
-  const slotKey = "social:hourly:slot:" + slot;
+  const slot = forceManual ? "manual-" + String(payload?.manual_id || crypto.randomUUID()) : new Date(scheduledAt).toISOString().slice(0, 13);
+  const slotKey = forceManual ? "social:hourly:manual:" + slot : "social:hourly:slot:" + slot;
+  if (!preview && !forceManual && !payload?.manual) {
+    const lastPublishedAt = Number(await storage.get("social:hourly:last_published_at") || 0);
+    if (lastPublishedAt && Date.now() - lastPublishedAt < 60 * 60 * 1000) {
+      return { ok: true, skipped: true, reason: "interval_not_elapsed", next_at: lastPublishedAt + 60 * 60 * 1000 };
+    }
+  }
   const existing = await storage.get(slotKey);
-  if (existing && !preview) {
+  if (existing && !preview && !forceManual) {
     const alreadyPublished =
       existing.status === "published" ||
       Boolean(existing.threads_post_id);
@@ -278,6 +341,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
       const latestHistory = await storage.get("social:hourly:history") || [];
       latestHistory.push(record);
       await storage.put("social:hourly:history", latestHistory.slice(-100));
+      await storage.put("social:hourly:last_published_at", Date.parse(eventAt));
     }
     await storage.put(slotKey, {
       status: threadsResult ? "published" : "failed",
