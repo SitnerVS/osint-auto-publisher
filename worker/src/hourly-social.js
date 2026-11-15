@@ -110,7 +110,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
   const env = coordinator.env;
   const preview = payload?.preview === true;
   const bootstrapPending = payload?.bootstrap === true && (await storage.get("social:hourly:bootstrap_published")) !== true;
-  const forceManual = payload?.force_manual === true || bootstrapPending;
+  const forceManual = payload?.force_manual === true;
 
   if (!preview && String(env.THREADS_PUBLISHING_ENABLED || "false").toLowerCase() !== "true") {
     return { ok: true, skipped: true, reason: "threads_publishing_disabled" };
