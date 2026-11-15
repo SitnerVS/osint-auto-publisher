@@ -277,20 +277,45 @@ const likedHumor = await storage.get("social:hourly:liked") || [];
       const trendId = String(previewData.trend_id || previewData.trendId || "NONE");
       const matched = /^NONE$/i.test(trendId) ? null : russianTrends.find(item => item.id === trendId);
       const selectedTrend = matched || { id: "NONE", name: "Повседневная жизнь" };
-      const rawVariants = Array.isArray(previewData.variants) ? previewData.variants : [];
-      if (rawVariants.length !== 5) {
-        console.warn("Hourly preview did not return exactly five variants:", rawVariants.length, rawResponse.slice(0, 1200));
-        return { ok: true, skipped: true, reason: "preview_requires_exactly_five_variants" };
-      }
-      const variants = rawVariants.map((item, index) => ({
+      let rawVariants = Array.isArray(previewData.variants) ? previewData.variants : [];
+      const mapPreviewVariants = items => items.map((item, index) => ({
         index,
         text: normalizeText(typeof item === "string" ? item : item?.text || item?.joke || item?.content || ""),
         angle: normalizeText(typeof item === "object" ? item?.angle || "" : "")
       }));
-      const invalidVariant = variants.find(item => !item.text || localSafetyFailure(item.text));
-      if (invalidVariant) {
-        console.warn("Hourly preview contained an empty or invalid variant:", invalidVariant, rawResponse.slice(0, 1200));
-        return { ok: true, skipped: true, reason: "one_or_more_preview_variants_failed_validation" };
+      let variants = mapPreviewVariants(rawVariants);
+      const validationIssues = items => {
+        const issues = [];
+        if (items.length !== 5) issues.push("Нужно ровно пять объектов; сейчас: " + items.length + ".");
+        items.forEach((item, index) => {
+          const failure = localSafetyFailure(item.text);
+          if (failure) issues.push("Вариант " + (index + 1) + ": " + failure + ".");
+        });
+        return issues;
+      };
+      let issues = validationIssues(variants);
+      if (issues.length) {
+        console.warn("Hourly preview validation failed; requesting one repair pass:", issues);
+        const repairPrompt = generationPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ПРОВЕРКУ. Исправь его и верни заново РОВНО ПЯТЬ полноценных вариантов. Не объясняй исправления. Ошибки проверки: " + issues.join(" ") + " Верни только корректный JSON. Каждый текст должен быть на русском языке, без ссылок, хештегов, упоминаний и запрещённых оскорблений; длина каждого текста — до 500 символов.";
+        const repairedRaw = await deps.groqGenerate(env, repairPrompt, {
+          task: "hourly_humor_validation_repair",
+          maxAttempts: 2,
+          temperature: 0.9,
+          maxOutputTokens: 1800
+        });
+        try {
+          const repairedData = parseJsonObject(String(repairedRaw || ""));
+          rawVariants = Array.isArray(repairedData.variants) ? repairedData.variants : [];
+          variants = mapPreviewVariants(rawVariants);
+          issues = validationIssues(variants);
+        } catch (repairError) {
+          console.warn("Hourly preview repair returned invalid JSON:", repairError.message);
+          issues = ["модель не вернула корректный JSON после повторной попытки"];
+        }
+      }
+      if (issues.length) {
+        console.warn("Hourly preview remains invalid after repair:", issues);
+        return { ok: true, skipped: true, reason: "preview_validation_failed_after_repair", detail: issues.join(" ") };
       }
       const sessionId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
       await storage.put("social:hourly:preview:" + sessionId, {
