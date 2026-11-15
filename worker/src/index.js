@@ -126,29 +126,26 @@ async function geminiGenerate(env, prompt, options = {}) {
 
   console.log("Gemini request started:", options.task || "generation");
 
+  const humorCreativeTask = /^(manual_humor_variants|manual_humor_editor|hourly_social_copy|hourly_social_copy_retry)$/.test(String(options.task || ""));
+  const model = options.model || (humorCreativeTask ? "gemini-3.8-flash" : "gemini-3.5-flash-lite");
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: options.temperature ?? 0.7,
+      maxOutputTokens: options.maxOutputTokens ?? 2500
+    }
+  };
+  if (options.googleSearch === true) requestBody.tools = [{ google_search: {} }];
+
   const response = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-goog-api-key": env.GEMINI_API_KEY
       },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: prompt
-              }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: options.temperature ?? 0.7,
-          maxOutputTokens: options.maxOutputTokens ?? 2500
-        }
-      })
+      body: JSON.stringify(requestBody)
     }
   );
 
