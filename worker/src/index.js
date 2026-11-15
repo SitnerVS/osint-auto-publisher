@@ -842,15 +842,15 @@ export default {
                 local_safety_filter: "Черновик не прошёл локальную проверку безопасности."
               };
               const diagnostic = Array.isArray(result.candidates) && result.candidates.length
-                ? "\\n\\nВарианты, которые отклонил редактор:\\n" + result.candidates.map((item, index) => (index + 1) + ". " + item).join("\\n")
+                ? "\n\nВарианты, которые отклонил редактор:\n" + result.candidates.map((item, index) => (index + 1) + ". " + item).join("\n")
                 : "";
               await telegram(env, "sendMessage", {
                 chat_id: chatId,
-                text: "ПРЕДПРОСМОТР НЕ ПОЛУЧЕН.\\nТренд: " + String(result.trend || "—") +
-                  "\\nПричина: " +
+                text: "ПРЕДПРОСМОТР НЕ ПОЛУЧЕН.\nТренд: " + String(result.trend || "—") +
+                  "\nПричина: " +
                   (reasons[result.reason] || String(result.detail || result.reason || result.error || "неизвестная ошибка")).slice(0, 500) +
                   diagnostic +
-                  "\\n\\nПубликации не было."
+                  "\n\nПубликации не было."
               });
             }
           } catch (error) {
