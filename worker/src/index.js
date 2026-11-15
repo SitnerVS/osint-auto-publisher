@@ -501,6 +501,7 @@ export default {
               "/threads_status — проверить подключение Threads\n" +
               "/threads_trends_test — безопасно проверить доступ к трендам Threads\n" +
               "/hourly_preview — проверить генерацию без публикации\n" +
+              "/hourly_start — включить рубрику и запустить первую публикацию\n" +
               "/ai_test — проверка Gemini\n" +
               "/settings — просмотр настроек\n" +
               "/id — проверка Telegram ID"
@@ -595,6 +596,53 @@ export default {
               text: "Не удалось выполнить предпросмотр.\nПричина: " +
                 String(error.message || error).slice(0, 700) +
                 "\n\nПубликации не было."
+            });
+          }
+        }
+
+        else if (command === "/hourly_start") {
+          await telegram(env, "sendMessage", {
+            chat_id: chatId,
+            text: "Включаю автоматическую ежечасную рубрику и запускаю первую публикацию. Текст пройдёт проверки безопасности перед отправкой в Threads..."
+          });
+          try {
+            const settings = await callCoordinator(env, "/hourly-settings", {
+              action: "enable",
+              user_id: userId,
+              chat_id: chatId
+            });
+            if (!settings.ok || settings.enabled !== true) {
+              throw new Error(settings.error || "Не удалось включить ежечасную рубрику");
+            }
+            const result = await callCoordinator(env, "/hourly-trend", {
+              scheduled_at: Date.now(),
+              manual: true
+            });
+            if (result.skipped) {
+              const reasons = {
+                threads_publishing_disabled: "Публикации Threads отключены в настройках Worker.",
+                hourly_rubric_disabled: "Ежечасная рубрика отключена.",
+                slot_already_processed: "В этом часовом слоте уже была попытка запуска. Повторную публикацию не выполнял.",
+                slot_already_published: "В этом часовом слоте пост уже опубликован. Дубликат заблокирован.",
+                slot_in_progress: "Запуск этого часового слота ещё выполняется. Подожди до 10 минут."
+              };
+              await telegram(env, "sendMessage", {
+                chat_id: chatId,
+                text: "Ежечасная рубрика включена, но первая публикация пропущена.\nПричина: " +
+                  (reasons[result.reason] || String(result.reason || "подходящий безопасный тренд не найден"))
+              });
+            } else if (result.failed || !result.ok) {
+              await telegram(env, "sendMessage", {
+                chat_id: chatId,
+                text: "Ежечасная рубрика включена, но первая публикация не состоялась.\nПричина: " +
+                  String(result.error || "ошибка выполнения").slice(0, 700)
+              });
+            }
+          } catch (error) {
+            await telegram(env, "sendMessage", {
+              chat_id: chatId,
+              text: "Не удалось включить и запустить ежечасную рубрику.\nПричина: " +
+                String(error.message || error).slice(0, 700)
             });
           }
         }
@@ -1071,6 +1119,9 @@ export class ApprovalCoordinator {
           if (payload.action === "toggle") {
             enabled = !enabled;
             await this.ctx.storage.put(key, enabled);
+          } else if (payload.action === "enable") {
+            enabled = true;
+            await this.ctx.storage.put(key, true);
           }
           result = { ok: true, enabled: enabled === true };
         }
