@@ -149,49 +149,81 @@ async function geminiGenerate(env, prompt, options = {}) {
     }
   );
 
-  let response = await requestGemini(model, requestBody);
-
+  let response;
   let result;
+  let retryDelaySeconds = null;
+  const maxAttempts = 3;
 
-  try {
-    result = await response.json();
-  } catch {
-    throw new Error(
-      `Gemini returned invalid JSON: ${response.status}`
-    );
-  }
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    response = await requestGemini(model, requestBody);
 
-  if (!response.ok) {
-    const errorMessage = result.error?.message || "Unknown Gemini error";
+    try {
+      result = await response.json();
+    } catch {
+      throw new Error(`Gemini returned invalid JSON: ${response.status}`);
+    }
+
+    if (response.ok) break;
+
     const details = Array.isArray(result.error?.details) ? result.error.details : [];
-    const quotaInfo = details
-      .map(item => {
+    const quotaDetails = details
+      .filter(item => item?.["@type"]?.includes("QuotaFailure"))
+      .flatMap(item => Array.isArray(item.violations) ? item.violations : []);
+    const retryInfo = details.find(item => item?.["@type"]?.includes("RetryInfo"));
+    const retryDelay = retryInfo?.retryDelay || details.find(item => item?.retryDelay)?.retryDelay || "";
+    const retryMatch = String(retryDelay).match(/^(\\d+(?:\\.\\d+)?)s$/);
+    retryDelaySeconds = retryMatch ? Number(retryMatch[1]) : null;
+    const quotaText = quotaDetails.map(item =>
+      [item.quotaMetric, item.quotaId, item.description].filter(Boolean).join(" ")
+    ).join(" ");
+    const dailyQuota = /RequestsPerDay|requests_per_day|generate_content_free_tier_requests/i.test(quotaText);
+
+    // A daily quota cannot be repaired by immediate retries. Honour Google's
+    // RetryInfo for transient throttling, with bounded exponential backoff.
+    const retryable = response.status === 429 || response.status === 503;
+    const waitSeconds = retryDelaySeconds ?? Math.min(2 ** (attempt - 1), 8);
+
+    if (!retryable || dailyQuota || attempt === maxAttempts || waitSeconds > 20) {
+      const errorMessage = result.error?.message || "Unknown Gemini error";
+      const quotaInfo = details.map(item => {
         const info = item?.metadata || {};
         const parts = [];
         if (info.quotaMetric) parts.push("quotaMetric=" + info.quotaMetric);
         if (info.quotaId) parts.push("quotaId=" + info.quotaId);
-        if (info.consumer) parts.push("consumer=" + info.consumer);
         if (item?.retryDelay) parts.push("retryDelay=" + item.retryDelay);
+        if (item?.["@type"]?.includes("RetryInfo") && item.retryDelay) parts.push("retryInfo=" + item.retryDelay);
         return parts.join(", ");
-      })
-      .filter(Boolean)
-      .join("; ");
-    const retryAfter = response.headers.get("retry-after");
-    const diagnostic = [
-      quotaInfo ? "Детали лимита: " + quotaInfo : "",
-      retryAfter ? "Повторить через: " + retryAfter + " сек." : ""
-    ].filter(Boolean).join(". ");
+      }).filter(Boolean).join("; ");
+      const retryAfter = response.headers.get("retry-after");
+      const diagnostic = [
+        quotaInfo ? "Детали лимита: " + quotaInfo : "",
+        retryAfter ? "Повторить через: " + retryAfter + " сек." : "",
+        dailyQuota ? "Дневная квота исчерпана; повтор до сброса не поможет" : ""
+      ].filter(Boolean).join(". ");
 
-    console.error("Gemini API error:", {
-      status: response.status,
-      message: errorMessage,
-      quotaInfo,
-      retryAfter
+      console.error("Gemini API error:", {
+        status: response.status,
+        message: errorMessage,
+        quotaInfo,
+        retryAfter,
+        attempt,
+        dailyQuota
+      });
+
+      throw new Error(
+        `Gemini API ${response.status}: ${errorMessage}${diagnostic ? ". " + diagnostic : ""}`
+      );
+    }
+
+    const jitterMs = Math.floor(Math.random() * 500);
+    const delayMs = Math.max(1000, waitSeconds * 1000) + jitterMs;
+    console.warn("Gemini transient throttle; retrying:", {
+      attempt,
+      maxAttempts,
+      waitMs: delayMs,
+      status: response.status
     });
-
-    throw new Error(
-      `Gemini API ${response.status}: ${errorMessage}${diagnostic ? ". " + diagnostic : ""}`
-    );
+    await new Promise(resolve => setTimeout(resolve, delayMs));
   }
 
   const answer = result.candidates?.[0]?.content?.parts
