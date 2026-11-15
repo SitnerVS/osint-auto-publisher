@@ -499,6 +499,7 @@ export default {
               "/generate — генерация новой темы\n" +
               "/publish_retry ID — безопасно повторить попытку Threads\n" +
               "/threads_status — проверить подключение Threads\n" +
+              "/threads_trends_test — безопасно проверить доступ к трендам Threads\n" +
               "/ai_test — проверка Gemini\n" +
               "/settings — просмотр настроек\n" +
               "/id — проверка Telegram ID"
@@ -603,6 +604,45 @@ export default {
           }
         }
 
+        else if (command === "/threads_trends_test") {
+          await telegram(env, "sendMessage", {
+            chat_id: chatId,
+            text: "Проверяю только чтение Threads Trending Topics. Генерация и публикация постов не запускаются..."
+          });
+          try {
+            const result = await callCoordinator(env, "/threads/trends-test", {
+              user_id: userId,
+              chat_id: chatId
+            });
+            if (result.success) {
+              const topics = Array.isArray(result.topics) && result.topics.length
+                ? "\\n\\nПримеры трендов:\\n" + result.topics.slice(0, 5).join("\\n")
+                : "";
+              await telegram(env, "sendMessage", {
+                chat_id: chatId,
+                text: "THREADS TRENDING TOPICS: ДОСТУП ЕСТЬ\\nHTTP: " + result.http_status +
+                  "\\nПолучено трендов: " + result.count + topics +
+                  "\\n\\nПроверка выполнена без генерации и публикации."
+              });
+            } else {
+              await telegram(env, "sendMessage", {
+                chat_id: chatId,
+                text: "THREADS TRENDING TOPICS: ДОСТУП НЕ ПОДТВЕРЖДЁН\\nHTTP: " +
+                  String(result.http_status || "—") + "\\nПричина: " +
+                  String(result.error || "неизвестная ошибка").slice(0, 700) +
+                  "\\n\\nПубликация не запускалась."
+              });
+            }
+          } catch (error) {
+            await telegram(env, "sendMessage", {
+              chat_id: chatId,
+              text: "Не удалось выполнить безопасную проверку трендов.\\nПричина: " +
+                String(error.message || error).slice(0, 700) +
+                "\\n\\nПубликация не запускалась."
+            });
+          }
+        }
+
         else if (command === "/threads_status") {
           const status = await callCoordinator(env, "/threads/status", {
             user_id: userId,
@@ -694,6 +734,7 @@ export default {
               "/generate\n" +
               "/publish_retry ID\n" +
               "/threads_status\n" +
+              "/threads_trends_test\n" +
               "/settings\n" +
               "/ai_test\n" +
               "/id"
@@ -833,6 +874,7 @@ export class ApprovalCoordinator {
       path !== "/generate" &&
       path !== "/publish-retry" &&
       path !== "/threads/status" &&
+      path !== "/threads/trends-test" &&
       path !== "/threads/oauth/save-state" &&
       path !== "/threads/oauth/consume-state" &&
       path !== "/threads/oauth/save-token" &&
@@ -862,6 +904,50 @@ export class ApprovalCoordinator {
         result = await this.handleTest(payload);
       } else if (path === "/generate") {
         result = await this.handleGenerate(payload);
+      } else if (path === "/threads/trends-test") {
+        const expectedId = String(this.env.TELEGRAM_CHAT_ID || "");
+        if (String(payload.chat_id || "") !== expectedId || String(payload.user_id || "") !== expectedId) {
+          result = { ok: true, success: false, http_status: 401, error: "Unauthorized" };
+        } else {
+          const token = await this.ctx.storage.get("threads:oauth:token");
+          if (!token?.access_token || !token?.user_id || Number(token.expires_at || 0) <= Date.now()) {
+            result = { ok: true, success: false, http_status: 0, error: "Токен Threads отсутствует или истёк. Сначала проверь /threads_status." };
+          } else {
+            const trendsUrl = new URL("https://graph.threads.com/v1.0/trending_topics");
+            trendsUrl.searchParams.set("country_code", "US");
+            trendsUrl.searchParams.set("access_token", token.access_token);
+            const trendsResponse = await fetch(trendsUrl.toString());
+            const trendsResult = await trendsResponse.json().catch(() => ({}));
+            if (!trendsResponse.ok) {
+              const apiError = trendsResult.error || {};
+              result = {
+                ok: true,
+                success: false,
+                http_status: trendsResponse.status,
+                error: [
+                  apiError.message || "Threads Trending Topics API вернул ошибку",
+                  apiError.type ? "type=" + apiError.type : "",
+                  apiError.code !== undefined ? "code=" + apiError.code : "",
+                  apiError.error_subcode !== undefined ? "subcode=" + apiError.error_subcode : "",
+                  apiError.fbtrace_id ? "fbtrace_id=" + apiError.fbtrace_id : ""
+                ].filter(Boolean).join("; ")
+              };
+            } else {
+              const raw = Array.isArray(trendsResult.data)
+                ? trendsResult.data
+                : Array.isArray(trendsResult.trending_topics)
+                  ? trendsResult.trending_topics
+                  : [];
+              result = {
+                ok: true,
+                success: true,
+                http_status: trendsResponse.status,
+                count: raw.length,
+                topics: raw.slice(0, 5).map(item => String(item.name || item.topic || item.title || item.trend_name || "").slice(0, 120)).filter(Boolean)
+              };
+            }
+          }
+        }
       } else if (path === "/threads/status") {
         const expectedId = String(this.env.TELEGRAM_CHAT_ID || "");
         if (String(payload.chat_id || "") !== expectedId || String(payload.user_id || "") !== expectedId) {
