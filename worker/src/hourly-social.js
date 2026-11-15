@@ -244,10 +244,6 @@ export async function runHourlyTrend(coordinator, payload, deps) {
 
 
     if (preview) {
-      await deps.telegram(env, "sendMessage", {
-        chat_id: env.TELEGRAM_CHAT_ID,
-        text: "ПРЕДПРОСМОТР ЕЖЕЧАСНОЙ РУБРИКИ — БЕЗ ПУБЛИКАЦИИ\n\nТренд: " + selectedTrend.name + "\n\n" + text + "\n\nПроверка формата и безопасности пройдена. В Threads ничего не отправлялось."
-      });
       return { ok: true, preview: true, trend: selectedTrend.name, text };
     }
 
