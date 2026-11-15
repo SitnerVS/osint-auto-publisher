@@ -253,9 +253,9 @@ const generationPrompt =
       "ТРЕНДЫ THREADS: " + JSON.stringify(trends) + "\n\n" +
       "ПРЕДЫДУЩИЕ ТЕМЫ OSINTNER: " + JSON.stringify(editorialHistory) + "\n\n" +
       "ОПУБЛИКОВАННЫЕ ШУТКИ — НЕ ПОВТОРЯТЬ: " + JSON.stringify(recentFunnyHistory);
-    const generatedRaw = await deps.geminiGenerate(env, generationPrompt, {
+    const generatedRaw = await deps.groqGenerate(env, generationPrompt, {
       task: "hourly_social_candidates",
-      googleSearch: false,
+      responseMimeType: "application/json",
       maxAttempts: 1,
       temperature: 0.9,
       maxOutputTokens: 700
@@ -299,9 +299,9 @@ const generationPrompt =
       'Верни строго JSON: {"skip":true,"reason":"краткая причина"} либо {"skip":false,"text":"точный текст выбранной шутки"}.';
 
 
-    const reviewedRaw = await deps.geminiGenerate(env, reviewPrompt, {
+    const reviewedRaw = await deps.groqGenerate(env, reviewPrompt, {
       task: "hourly_social_editorial_review",
-      googleSearch: false,
+      responseMimeType: "application/json",
       maxAttempts: 1,
       temperature: 0.35,
       maxOutputTokens: 220
