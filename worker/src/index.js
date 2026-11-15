@@ -266,20 +266,44 @@ async function groqGenerate(env, prompt, options = {}) {
     reasoning_effort: options.reasoningEffort || "low"
   };
 
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + env.GROQ_API_KEY
-    },
-    body: JSON.stringify(requestBody)
-  });
+  let response;
+  let result = {};
+  const maxAttempts = Math.max(1, Math.min(2, Number(options.maxAttempts) || 2));
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + env.GROQ_API_KEY
+      },
+      body: JSON.stringify(requestBody)
+    });
 
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
+    result = await response.json().catch(() => ({}));
+    if (response.ok) break;
+
     const message = result.error?.message || "Unknown Groq API error";
-    console.error("Groq API error:", { status: response.status, message, task: options.task || "generation" });
-    throw new Error("Groq API " + response.status + ": " + message);
+    const retryMatch = message.match(/try again in ([0-9.]+)s/i);
+    const retryAfter = Number(response.headers.get("retry-after") || 0);
+    const waitSeconds = Math.max(retryAfter, retryMatch ? Number(retryMatch[1]) : 0);
+    const canRetry = response.status === 429 && attempt < maxAttempts && waitSeconds > 0 && waitSeconds <= 15;
+
+    console.error("Groq API error:", {
+      status: response.status,
+      message,
+      task: options.task || "generation",
+      attempt,
+      retry_in_seconds: canRetry ? waitSeconds : null
+    });
+
+    if (!canRetry) {
+      const friendly = response.status === 429
+        ? "Сервис генерации временно ограничил частоту запросов. Подожди около минуты и повтори предпросмотр."
+        : "Ошибка сервиса генерации: " + message;
+      throw new Error("Groq API " + response.status + ": " + friendly);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, Math.ceil(waitSeconds * 1000) + 350));
   }
 
   const choice = result.choices?.[0] || {};
