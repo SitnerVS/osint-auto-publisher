@@ -315,28 +315,28 @@ const generationPrompt = [
       "Ты — научный редактор русскоязычной рубрики «Интересные и малоизвестные факты». Подготовь ровно пять коротких, содержательных и достоверных фактов для Threads.",
       "Подбирай интересные, хорошо документированные факты. Не ищи сенсации. Охвати пять разных областей: природа, космос, история, география, технологии, медицина, язык, культура или наука.",
       "Каждый факт — одно утвердительное предложение на русском языке, максимум 12 слов. Без вопросов, оценок, вступлений, хештегов, упоминаний и эмодзи.",
-      "ИСТОЧНИКИ: ниже приведён каталог результатов Tavily. У каждого источника есть числовой ID и домен. Для каждого факта выбери РОВНО ДВА ID источников, которые прямо подтверждают именно этот факт. Два источника обязательно должны иметь РАЗНЫЕ домены. Не выбирай два URL одного домена и не используй один источник дважды в паре.",
-      "Используй только источники из каталога. Не выдумывай ID, URL, цифры, даты, имена и причинно-следственные связи. Если не можешь найти два подходящих источника с разными доменами, придумай другой, более простой факт, подтверждаемый двумя источниками.",
+      "ИСТОЧНИКИ: ниже приведён каталог результатов Tavily. У каждого источника есть числовой ID и домен. Для каждого факта выбери РОВНО ДВА ID источников, которые прямо подтверждают именно этот факт. Два источника обязательно должны иметь РАЗНЫЕ домены. Не выбирай два URL одного домена.",
+      "Используй только источники из каталога. Не выдумывай ID, URL, цифры, даты, имена и причинно-следственные связи. Если не можешь найти два подходящих источника с разными доменами, выбери другой факт.",
       "Подходят государственные учреждения, университеты, научные журналы, музеи и авторитетные энциклопедии. Не используй форумы, рекламные сайты и непроверенные блоги. Не выдавай гипотезы и легенды за установленные факты.",
       "Не повторяй недавние публикации: " + JSON.stringify(recentFunnyHistory) + ".",
-      "Верни только JSON: {\\"variants\\":[{\\"text\\":\\"Факт не более двенадцати слов\\",\\"source_ids\\":[1,2]}]}. Ровно пять объектов. В source_ids должны быть два разных числовых ID с разными доменами. Не возвращай source_urls — система сама подставит точные URL по ID.",
-      "Если источники не подтверждают факт, не включай его. Точность важнее оригинальности."
-    ].join("\\n");
+      "Верни только JSON: " + JSON.stringify({ variants: [{ text: "Факт не более двенадцати слов", source_ids: [1, 2] }] }) + ". Ровно пять объектов. source_ids — два разных числовых ID с разными доменами. URL не возвращай.",
+      "Точность важнее оригинальности. Если источники не подтверждают факт, не включай его."
+    ].join("\n");
     if (typeof deps.tavilySearch !== "function") throw new Error("Внешний поиск фактов не подключён. Нужен TAVILY_API_KEY в Cloudflare Worker Secrets.");
     const searchResults = await deps.tavilySearch(env, "well documented interesting facts nature animals astronomy history geography science technology university museum government research");
     const groundedSources = [...new Set((searchResults || []).map(item => String(item.url || "").trim()).filter(url => url.startsWith("https://") || url.startsWith("http://")))];
     if (groundedSources.length < 10) throw new Error("Внешний поиск вернул меньше десяти источников; подготовка остановлена.");
     const sourceInventory = (searchResults || []).map((item, index) => {
       let host = "";
-      try { host = new URL(String(item.url || "")).hostname.toLowerCase().replace(/^www\\./u, ""); } catch (_) {}
+      try { host = new URL(String(item.url || "")).hostname.toLowerCase().replace(/^www\./u, ""); } catch (_) {}
       return { id: index + 1, host, url: String(item.url || ""), title: String(item.title || ""), content: String(item.content || "") };
     });
     const sourceEvidence = sourceInventory.map(item =>
-      "[" + item.id + "] ДОМЕН: " + item.host + "\\nЗАГОЛОВОК: " + item.title +
-      "\\nURL: " + item.url + "\\nФРАГМЕНТ: " + item.content.slice(0, 1100)
-    ).join("\\n\\n");
+      "[" + item.id + "] ДОМЕН: " + item.host + "\nЗАГОЛОВОК: " + item.title +
+      "\nURL: " + item.url + "\nФРАГМЕНТ: " + item.content.slice(0, 1100)
+    ).join("\n\n");
     const groundedPrompt = generationPrompt
-      + "\\n\\nКАТАЛОГ ИСТОЧНИКОВ TAVILY (используй только эти ID и URL):\\n"
+      + "\n\nКАТАЛОГ ИСТОЧНИКОВ TAVILY (используй только эти ID и URL):\n"
       + sourceEvidence;
     let rawResponse = "";
     if (preview) {
@@ -419,7 +419,7 @@ const generationPrompt = [
       };
       const independentDomain = url => {
         try {
-          const host = new URL(url).hostname.toLowerCase().replace(/^www\\./u, "");
+          const host = new URL(url).hostname.toLowerCase().replace(/^www\./u, "");
           const labels = host.split(".");
           const compoundSuffixes = new Set(["co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "edu.au", "co.nz", "com.br", "co.jp"]);
           const suffix = labels.slice(-2).join(".");
@@ -454,10 +454,9 @@ const generationPrompt = [
           if (/[?]/u.test(item.text)) issues.push("Вариант " + (index + 1) + ": нужен утвердительный факт.");
           if (/\b(?:возможно|вероятно|считается|предположительно|якобы|по легенде|говорят)\b/iu.test(item.text)) issues.push("Вариант " + (index + 1) + ": предположение или легенда не подходят.");
           const verifiedUrls = item.source_urls.filter(url => groundedSources.includes(url) && trustedSource(url));
-          const verifiedDomains = new Set(verifiedUrls.map(url => {
-            try { return new URL(url).hostname.toLowerCase().replace(/^www\./u, ""); } catch (_) { return ""; }
-          }).filter(Boolean));
-          if (verifiedDomains.size < 2) issues.push("Вариант " + (index + 1) + ": нужны два независимых авторитетных источника из результатов Tavily Search.");
+          const verifiedDomains = new Set(verifiedUrls.map(independentDomain).filter(Boolean));
+          if (item.source_ids.length !== 2) issues.push("Вариант " + (index + 1) + ": укажи ровно два source_ids из каталога.");
+          if (verifiedDomains.size < 2) issues.push("Вариант " + (index + 1) + ": нужны два авторитетных источника с разными доменами; выбраны: " + (verifiedUrls.map(independentDomain).join(", ") || "нет проверенных источников") + ".");
           if (item.source_urls.some(url => !groundedSources.includes(url))) issues.push("Вариант " + (index + 1) + ": ссылка отсутствует в результатах Tavily Search.");
         });
         return issues;
@@ -465,7 +464,7 @@ const generationPrompt = [
       let issues = validationIssues(variants);
       if (issues.length) {
         console.warn("Hourly preview validation failed; requesting one repair pass:", issues);
-        const repairPrompt = groundedPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ПРОВЕРКУ. Подготовь заново ровно пять фактов. Для каждого укажи ровно два source_ids из каталога, подтверждающих факт и имеющих РАЗНЫЕ домены. Верни только JSON с полями text и source_ids; URL не выдумывай и не возвращай. Ошибки: " + issues.join(" ");
+        const repairPrompt = groundedPrompt + "\n\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ПРОВЕРКУ. Подготовь заново ровно пять фактов. Для каждого укажи ровно два source_ids из каталога, подтверждающих факт и имеющих РАЗНЫЕ домены. Верни только JSON с полями text и source_ids; URL не выдумывай и не возвращай. Ошибки: " + issues.join(" "); URL не выдумывай и не возвращай. Ошибки: " + issues.join(" ");
         const repairedRaw = await deps.geminiGenerate(env, repairPrompt, {
           task: "hourly_verified_facts_recheck",
           model: "gemini-3.5-flash-lite",
