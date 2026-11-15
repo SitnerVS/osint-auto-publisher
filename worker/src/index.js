@@ -296,19 +296,40 @@ async function groqGenerate(env, prompt, options = {}) {
     const retryMatch = message.match(/try again in ([0-9.]+)s/i);
     const retryAfter = Number(response.headers.get("retry-after") || 0);
     const waitSeconds = Math.max(retryAfter, retryMatch ? Number(retryMatch[1]) : 0);
+    const rateHeaders = {
+      limit_requests: response.headers.get("x-ratelimit-limit-requests"),
+      remaining_requests: response.headers.get("x-ratelimit-remaining-requests"),
+      reset_requests: response.headers.get("x-ratelimit-reset-requests"),
+      limit_tokens: response.headers.get("x-ratelimit-limit-tokens"),
+      remaining_tokens: response.headers.get("x-ratelimit-remaining-tokens"),
+      reset_tokens: response.headers.get("x-ratelimit-reset-tokens"),
+      retry_after: response.headers.get("retry-after")
+    };
     const canRetry = response.status === 429 && attempt < maxAttempts && waitSeconds > 0 && waitSeconds <= 15;
 
     console.error("Groq API error:", {
       status: response.status,
       message,
+      error_type: result.error?.type || null,
+      error_code: result.error?.code || null,
+      rate_limits: rateHeaders,
       task: options.task || "generation",
       attempt,
       retry_in_seconds: canRetry ? waitSeconds : null
     });
 
     if (!canRetry) {
+      const limitDetails = [
+        rateHeaders.remaining_tokens !== null
+          ? "Остаток токенов: " + rateHeaders.remaining_tokens + "; сброс через " + (rateHeaders.reset_tokens || "не указан")
+          : "",
+        rateHeaders.remaining_requests !== null
+          ? "Остаток запросов: " + rateHeaders.remaining_requests + "; сброс через " + (rateHeaders.reset_requests || "не указан")
+          : "",
+        rateHeaders.retry_after ? "Повторить через " + rateHeaders.retry_after + " сек." : ""
+      ].filter(Boolean).join(". ");
       const friendly = response.status === 429
-        ? "Сервис генерации временно ограничил частоту запросов. Подожди около минуты и повтори предпросмотр."
+        ? "Groq ограничил запросы (HTTP 429)." + (limitDetails ? " " + limitDetails : " Точные лимиты не переданы в ответе API.") + " Ничего не опубликовано."
         : "Ошибка сервиса генерации: " + message;
       throw new Error("Groq API " + response.status + ": " + friendly);
     }
