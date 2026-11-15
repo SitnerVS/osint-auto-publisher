@@ -698,3 +698,152 @@ const generationPrompt = [
     return { ok: true, failed: true, error: String(error.message || error) };
   }
 }
+
+
+const HOURLY_EDITORIAL_TRACKS = [
+  {
+    name: "OSINT",
+    query: "latest OSINT investigations open source intelligence digital footprint data analysis investigative tools AI OSINT research",
+    focus: "OSINT, цифровые следы, открытые данные, инструменты расследований, анализ связей, геолокация по открытым источникам и применение ИИ в расследованиях"
+  },
+  {
+    name: "Комплаенс",
+    query: "latest compliance RegTech KYC KYB AML sanctions screening regulatory technology corporate due diligence research",
+    focus: "комплаенс, KYC и KYB, AML, санкционный контроль, проверка контрагентов, RegTech, автоматизация контроля и регулирование цифровых технологий"
+  },
+  {
+    name: "Антифрод",
+    query: "latest anti-fraud fraud detection deepfake social engineering cybercrime cybersecurity threat intelligence AI fraud prevention research",
+    focus: "антифрод, новые схемы мошенничества, deepfake, социальная инженерия, киберугрозы, выявление аномалий, цифровая криминалистика и технологии противодействия"
+  }
+];
+
+export async function runHourlyAutoPublish(coordinator, payload, deps) {
+  const storage = coordinator.ctx.storage;
+  const env = coordinator.env;
+  if (String(env.THREADS_PUBLISHING_ENABLED || "false").toLowerCase() !== "true") {
+    return { ok: true, skipped: true, reason: "threads_publishing_disabled" };
+  }
+  const scheduledAt = Number(payload?.scheduled_at || Date.now());
+  const slot = new Date(scheduledAt).toISOString().slice(0, 13);
+  const slotKey = "social:hourly:auto_slot:" + slot;
+  const existing = await storage.get(slotKey);
+  if (existing?.status === "published") return { ok: true, skipped: true, reason: "slot_already_published" };
+  if (existing?.status === "started" && Date.now() - Number(existing.started_at_ms || 0) < 10 * 60 * 1000) {
+    return { ok: true, skipped: true, reason: "slot_in_progress" };
+  }
+  const lastPublishedAt = Number(await storage.get("social:hourly:auto_last_published_at") || 0);
+  if (lastPublishedAt && Date.now() - lastPublishedAt < 55 * 60 * 1000) {
+    return { ok: true, skipped: true, reason: "interval_not_elapsed", next_at: lastPublishedAt + 60 * 60 * 1000 };
+  }
+  const token = await storage.get("threads:oauth:token");
+  if (!token?.access_token || !token?.user_id || Number(token.expires_at || 0) <= Date.now()) {
+    await storage.put(slotKey, { status: "skipped", reason: "threads_not_connected", created_at: new Date().toISOString() });
+    await deps.telegram(env, "sendMessage", {
+      chat_id: env.TELEGRAM_CHAT_ID,
+      text: "Ежечасная публикация пропущена: аккаунт Threads не подключён или токен истёк."
+    });
+    return { ok: true, skipped: true, reason: "threads_not_connected" };
+  }
+
+  const utcHour = Math.floor(scheduledAt / 3600000);
+  const track = HOURLY_EDITORIAL_TRACKS[((utcHour % HOURLY_EDITORIAL_TRACKS.length) + HOURLY_EDITORIAL_TRACKS.length) % HOURLY_EDITORIAL_TRACKS.length];
+  await storage.put(slotKey, { status: "started", started_at_ms: Date.now(), track: track.name, created_at: new Date().toISOString() });
+
+  try {
+    if (typeof deps.tavilySearch !== "function") throw new Error("Tavily не подключён: отсутствует TAVILY_API_KEY.");
+    const searchResults = await deps.tavilySearch(env, track.query + " latest developments 2026");
+    const trustedDomains = [
+      "cisa.gov","fbi.gov","ic3.gov","nist.gov","ftc.gov","sec.gov","justice.gov","treasury.gov",
+      "fincen.gov","ofac.treasury.gov","europa.eu","edpb.europa.eu","eba.europa.eu","esma.europa.eu",
+      "fatf-gafi.org","oecd.org","interpol.int","coe.int","enisa.europa.eu","cert.europa.eu",
+      "arxiv.org","ieee.org","acm.org","computer.org","nature.com","science.org","pnas.org",
+      "mit.edu","stanford.edu","berkeley.edu","ox.ac.uk","cam.ac.uk","nvidia.com","microsoft.com",
+      "openai.com","deepmind.google","ai.google","ibm.com","intel.com","amd.com","cloudflare.com",
+      "krebsonsecurity.com","therecord.media","bleepingcomputer.com","darkreading.com","wired.com",
+      "reuters.com","apnews.com","bbc.com","ft.com"
+    ];
+    const rootDomain = host => {
+      const labels = String(host || "").toLowerCase().replace(/^www\./u, "").split(".").filter(Boolean);
+      if (labels.length < 2) return "";
+      const suffix = labels.slice(-2).join(".");
+      const compound = new Set(["co.uk","org.uk","ac.uk","gov.uk","com.au","edu.au","co.nz","com.br","co.jp"]);
+      return labels.length >= 3 && compound.has(suffix) ? labels.slice(-3).join(".") : suffix;
+    };
+    const sources = [];
+    const seenDomains = new Set();
+    for (const item of (searchResults || [])) {
+      const url = String(item.url || "").trim();
+      if (!/^https?:\/\//iu.test(url)) continue;
+      let host = "";
+      try { host = new URL(url).hostname.toLowerCase().replace(/^www\./u, ""); } catch (_) { continue; }
+      if (!trustedDomains.some(domain => host === domain || host.endsWith("." + domain))) continue;
+      const domain = rootDomain(host);
+      if (!domain || seenDomains.has(domain)) continue;
+      seenDomains.add(domain);
+      sources.push({ id: sources.length + 1, host, domain, url, title: String(item.title || ""), content: String(item.content || "").slice(0, 1000) });
+    }
+    if (sources.length < 2) throw new Error("По выбранному направлению не найдено двух независимых авторитетных источников. Публикация остановлена.");
+    const sourceCatalogue = sources.map(s => "[" + s.id + "] " + s.host + " | " + s.title + " | " + s.url + "\n" + s.content).join("\n\n");
+    const prompt = [
+      "Ты — выпускающий редактор профессионального русскоязычного медиа об OSINT, комплаенсе и антифроде.",
+      "ТЕКУЩЕЕ НАПРАВЛЕНИЕ: " + track.name + ". Тематический фокус: " + track.focus + ".",
+      "Выбери ОДНО самое значимое, свежее и содержательное событие или исследование из предоставленного каталога источников и подготовь ОДИН готовый пост для Threads.",
+      "Пост: 2–3 полных связанных предложения, 180–470 символов. Первое сообщает, что произошло; второе раскрывает конкретную подтверждённую деталь и объясняет практическое значение; третье допустимо для контекста. Не пиши заголовок отдельно.",
+      "Используй только факты, которые прямо подтверждаются минимум двумя независимыми источниками из каталога. Укажи точные названия организаций, продукта, технологии или документа, если они есть в источниках. Не выдумывай даты, цифры, цитаты, компании и причинно-следственные связи. Не превращай предположение в факт.",
+      "Стиль: профессиональный, аналитический, ясный, без рекламных формулировок, сенсационности и искусственной драматизации. Пиши естественным русским языком; общепринятые аббревиатуры OSINT, KYC, KYB, AML, AI и названия продуктов можно сохранять.",
+      "Без хештегов, ссылок, упоминаний, эмодзи и вопросов. Не повторяй последние публикации: " + JSON.stringify((await storage.get("social:hourly:auto_history") || []).slice(-12).map(x => x.text)),
+      "Верни строго JSON вида " + JSON.stringify({ category: track.name, text: "Два или три предложения поста.", source_ids: [1,2] }) + ". Ровно один объект. source_ids — ровно два разных числовых ID из каталога.",
+      "КАТАЛОГ ИСТОЧНИКОВ:\n" + sourceCatalogue
+    ].join("\n\n");
+    const generated = await deps.geminiGenerate(env, prompt, {
+      task: "hourly_osint_compliance_antifraud_post",
+      model: "gemini-3.5-flash-lite",
+      fallbackModels: ["gemini-3.1-flash-lite"],
+      maxAttempts: 1,
+      temperature: 0.2,
+      maxOutputTokens: 1200
+    });
+    const parsed = parseJsonObject(generated);
+    const text = normalizeText(parsed.text || parsed.post || "");
+    const sourceIds = Array.isArray(parsed.source_ids) ? parsed.source_ids.map(Number) : [];
+    const selectedSources = sourceIds.map(id => sources.find(s => s.id === id)).filter(Boolean);
+    const sentenceCount = (text.match(/[.!?]+(?=\s|$)/gu) || []).length;
+    if (!text || text.length < 140 || text.length > 470 || sentenceCount < 2 || sentenceCount > 3) {
+      throw new Error("Пост не прошёл редакционную проверку: требуется 2–3 предложения и 140–470 символов.");
+    }
+    if (!/[А-Яа-яЁё]/u.test(text) || /[#@]|https?:\/\//iu.test(text) || /\?/u.test(text)) {
+      throw new Error("Пост не прошёл языковой и форматный фильтр.");
+    }
+    if (sourceIds.length !== 2 || selectedSources.length !== 2 || new Set(selectedSources.map(s => s.domain)).size !== 2) {
+      throw new Error("Не подтверждены два независимых источника. Публикация остановлена.");
+    }
+    const published = await publishThreads(env, token, text);
+    const at = new Date().toISOString();
+    const record = {
+      slot, category: track.name, text,
+      source_urls: selectedSources.map(s => s.url),
+      source_domains: selectedSources.map(s => s.domain),
+      threads_post_id: published.id, threads_permalink: published.permalink, published_at: at
+    };
+    const history = await storage.get("social:hourly:auto_history") || [];
+    history.push(record);
+    await storage.put("social:hourly:auto_history", history.slice(-100));
+    await storage.put("social:hourly:auto_last_published_at", Date.now());
+    await storage.put(slotKey, { status: "published", ...record });
+    await deps.telegram(env, "sendMessage", {
+      chat_id: env.TELEGRAM_CHAT_ID,
+      text: "ЕЖЕЧАСНЫЙ ПОСТ ОПУБЛИКОВАН\nНаправление: " + track.name + "\n\n" + text +
+        (published.permalink ? "\n\n" + published.permalink : "")
+    });
+    return { ok: true, published: true, category: track.name, text, permalink: published.permalink };
+  } catch (error) {
+    await storage.put(slotKey, { status: "failed", track: track.name, error: String(error.message || error).slice(0, 700), failed_at: new Date().toISOString() });
+    console.error("Hourly OSINT/compliance/anti-fraud auto-publish failed:", error.message);
+    await deps.telegram(env, "sendMessage", {
+      chat_id: env.TELEGRAM_CHAT_ID,
+      text: "Ежечасный пост не опубликован — проверка остановила выпуск.\nНаправление: " + track.name + "\nПричина: " + String(error.message || error).slice(0, 600)
+    });
+    return { ok: false, skipped: true, reason: "editorial_validation_or_publish_failed", detail: String(error.message || error) };
+  }
+}
