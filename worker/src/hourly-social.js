@@ -373,9 +373,9 @@ const generationPrompt = [
         const recoveryPrompt = [
           "Подготовь ровно пять коротких, хорошо документированных фактов для русскоязычного Threads.",
           "Для каждого факта выбери ровно два источника из каталога ниже. Источники должны прямо подтверждать факт и иметь разные домены.",
-          "Верни только JSON: {\\"variants\\":[{\\"text\\":\\"...\\",\\"source_ids\\":[1,2]}]}. Ровно пять объектов. source_ids — два разных числовых ID из каталога; URL не возвращай.",
+          "Верни только JSON: " + JSON.stringify({ variants: [{ text: "...", source_ids: [1, 2] }] }) + ". Ровно пять объектов. source_ids — два разных числовых ID из каталога; URL не возвращай.",
           "Каждый факт — одно утвердительное предложение на русском языке, максимум 12 слов. Не выдумывай факты или ID. Не используй хештеги, ссылки, упоминания и эмодзи."
-        ].join("\\n") + "\\n\\nКАТАЛОГ ИСТОЧНИКОВ TAVILY:\\n" + sourceEvidence;
+        ].join("\n") + "\n\nКАТАЛОГ ИСТОЧНИКОВ TAVILY:\n" + sourceEvidence;
         const recovered = await deps.geminiGenerate(env, recoveryPrompt, {
           task: "hourly_verified_facts_recovery",
           model: "gemini-3.5-flash-lite",
@@ -413,7 +413,8 @@ const generationPrompt = [
             host.endsWith(".museum") || host.endsWith(".gov.uk") || host.endsWith(".ac.uk") ||
             ["britannica.com","nature.com","science.org","pnas.org","cell.com","si.edu",
              "smithsonianmag.com","nationalgeographic.com","unesco.org","rsc.org","aps.org",
-             "jstor.org","ox.ac.uk","cam.ac.uk","harvard.edu","stanford.edu"].some(domain =>
+             "jstor.org","ox.ac.uk","cam.ac.uk","harvard.edu","stanford.edu",
+             "metmuseum.org","amnh.org","royalsocietypublishing.org","nationalacademies.org","history.com"].some(domain =>
               host === domain || host.endsWith("." + domain));
         } catch (_) { return false; }
       };
