@@ -1197,8 +1197,8 @@ export class ApprovalCoordinator {
     const item = {
       id: `test-${crypto.randomUUID().slice(0, 8)}`,
       content:
-        "ТЕСТОВАЯ ТЕМА: Как проверить цифровой след компании с помощью OSINT",
-      title: "Тест согласования",
+        "ТЕСТОВАЯ ТЕМА: Как проверить подлинность корпоративного сайта и выявить сайт-клон",
+      title: "Как проверить подлинность корпоративного сайта и выявить сайт-клон",
       category: "OSINT",
       is_test: true,
       stage: "topic",
@@ -1547,10 +1547,7 @@ export class ApprovalCoordinator {
           }
           delete item.approval_id;
 
-        } else if (
-          currentStage === "topic" &&
-          !item.is_test
-        ) {
+        } else if (currentStage === "topic") {
           item.status = "generating_text";
           delete item.approval_id;
 
