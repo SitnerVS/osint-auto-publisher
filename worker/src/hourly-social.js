@@ -330,7 +330,7 @@ const generationPrompt = [
       const grounded = await deps.geminiGenerate(env, generationPrompt, {
         task: "hourly_verified_facts_generation",
         model: "gemini-3.1-flash-lite",
-        fallbackModels: ["gemini-2.5-flash-lite"],
+        fallbackModels: ["gemini-3.5-flash-lite"],
         maxAttempts: 1,
         temperature: 0.2,
         maxOutputTokens: 1400,
@@ -343,7 +343,7 @@ const generationPrompt = [
       const generatedRaw = await deps.geminiGenerate(env, generationPrompt, {
         task: "hourly_fact_generation",
         model: "gemini-3.1-flash-lite",
-        fallbackModels: ["gemini-2.5-flash-lite"],
+        fallbackModels: ["gemini-3.5-flash-lite"],
         maxAttempts: 1,
         temperature: 0.2,
         maxOutputTokens: 800,
@@ -370,7 +370,7 @@ const generationPrompt = [
         const recovered = await deps.geminiGenerate(env, recoveryPrompt, {
           task: "hourly_verified_facts_recovery",
           model: "gemini-3.1-flash-lite",
-        fallbackModels: ["gemini-2.5-flash-lite"],
+        fallbackModels: ["gemini-3.5-flash-lite"],
           maxAttempts: 1,
           temperature: 0.2,
           maxOutputTokens: 1400,
@@ -443,7 +443,7 @@ const generationPrompt = [
         const repairedRaw = await deps.geminiGenerate(env, repairPrompt, {
           task: "hourly_verified_facts_recheck",
           model: "gemini-3.1-flash-lite",
-        fallbackModels: ["gemini-2.5-flash-lite"],
+        fallbackModels: ["gemini-3.5-flash-lite"],
           maxAttempts: 1,
           temperature: 0.1,
           maxOutputTokens: 1400,
