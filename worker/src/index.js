@@ -370,24 +370,28 @@ export default {
             return new Response("Meta did not return a long-lived access token.", { status: 502 });
           }
 
+          let profileId = "";
           let username = "";
           try {
             const profileUrl = new URL("https://graph.threads.net/v1.0/me");
             profileUrl.searchParams.set("fields", "id,username");
             profileUrl.searchParams.set("access_token", longToken.access_token);
             const profileResponse = await fetch(profileUrl.toString());
-            if (profileResponse.ok) {
-              const profile = await profileResponse.json();
-              username = String(profile.username || "");
+            const profile = await profileResponse.json().catch(() => ({}));
+            if (!profileResponse.ok || !profile.id || !profile.username) {
+              throw new Error(profile.error?.message || "Threads profile ID or username was not returned");
             }
+            profileId = String(profile.id);
+            username = String(profile.username);
           } catch (profileError) {
             console.error("Threads profile lookup failed:", profileError.message);
+            return new Response("Threads authorization succeeded, but the profile ID could not be verified. Please retry the connection.", { status: 502 });
           }
 
           const expiresIn = Number(longToken.expires_in || 5184000);
           await callCoordinator(env, "/threads/oauth/save-token", {
             access_token: longToken.access_token,
-            user_id: String(shortToken.user_id),
+            user_id: profileId,
             username,
             token_type: longToken.token_type || "bearer",
             expires_at: Date.now() + expiresIn * 1000,
@@ -752,7 +756,9 @@ export default {
           try {
             const result = await callCoordinator(env, "/threads/publish-check", {
               user_id: userId,
-              chat_id: chatId
+              chat_id: chatId,
+              app_id: env.THREADS_APP_ID || "",
+              app_secret: env.THREADS_APP_SECRET || ""
             });
             const scopes = Array.isArray(result.scopes) ? result.scopes.join(", ") : "не удалось получить";
             await telegram(env, "sendMessage", {
@@ -1121,11 +1127,13 @@ export class ApprovalCoordinator {
             let scopes = [];
             let hasBasic = null;
             let hasPublish = null;
-            if (this.env.THREADS_APP_ID && this.env.THREADS_APP_SECRET) {
+            const appId = String(payload.app_id || this.env.THREADS_APP_ID || "");
+            const appSecret = String(payload.app_secret || this.env.THREADS_APP_SECRET || "");
+            if (appId && appSecret) {
               try {
                 const debugUrl = new URL("https://graph.facebook.com/debug_token");
                 debugUrl.searchParams.set("input_token", token.access_token);
-                debugUrl.searchParams.set("access_token", this.env.THREADS_APP_ID + "|" + this.env.THREADS_APP_SECRET);
+                debugUrl.searchParams.set("access_token", appId + "|" + appSecret);
                 const debugResponse = await fetch(debugUrl.toString());
                 const debugData = await debugResponse.json().catch(() => ({}));
                 if (debugResponse.ok && debugData.data) {
