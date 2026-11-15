@@ -295,10 +295,10 @@ const likedHumor = await storage.get("social:hourly:liked") || [];
       const variants = (Array.isArray(previewData.variants) ? previewData.variants : [])
         .map((item, index) => ({ index, text: normalizeText(item.text), angle: normalizeText(item.angle || "") }))
         .filter(item => {
-          const words = item.text.split(/\\s+/u).filter(Boolean).length;
+          const words = item.text.split(/\s+/u).filter(Boolean).length;
           return words >= 3 && words <= 10 && item.text.length <= 180 &&
             !localSafetyFailure(item.text) &&
-            item.text.split(/[.!?…]+(?:[»”"']?)(?:\\s+|$)/u).filter(part => part.trim()).length === 1;
+            item.text.split(/[.!?…]+/u).filter(part => part.trim()).length === 1;
         })
         .slice(0, 5);
       if (!variants.length) {
