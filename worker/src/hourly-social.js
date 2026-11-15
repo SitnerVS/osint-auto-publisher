@@ -311,44 +311,44 @@ export async function runHourlyTrend(coordinator, payload, deps) {
       /[А-Яа-яЁё]/u.test(item.name) && !/[A-Za-z]{3,}/u.test(item.name)
     );
 
-const likedHumor = await storage.get("social:hourly:liked") || [];
-    const likedExamples = likedHumor.slice(-12).map(item => item.text).filter(Boolean);
-    const generationPrompt = preview
-      ? [
-          "Ты — автор взрослого, дерзкого, провокационного русскоязычного юмора для Threads. Пиши именно ШУТКИ, а не странные подписи, случайные наблюдения или наборы слов.",
-          "Каждый вариант — одна законченная фраза с настоящим панчлайном. Оптимально 8–12 слов, абсолютный максимум 14. Не обрезай мысль ради краткости: понятная смешная шутка важнее минимального числа слов.",
-          "Юмор взрослый: едкий сарказм, цинизм, социальная дерзость, чёрный юмор без издевательства над жертвами, сексуальные намёки, неловкость отношений, деньги, измены как явление, бытовая злость, работа, начальство, семейная жизнь, лицемерие, возраст, алкогольные последствия, бюрократия и общественные табу. Не скатывайся в графическую сексуальную детализацию.",
-          "Разрешены крепкая разговорная лексика и точечный мат. Не смягчай шутку из ложной вежливости. Провокация должна бить по лицемерию, глупости, жадности, самодовольству, абсурду правил и человеческим слабостям, а не по беззащитным людям.",
-          "Для «Повседневной жизни» бери реальные взрослые конфликты и узнаваемые ситуации: отношения, свидания, секс и его отсутствие, совместный быт, развод, деньги в паре, работа и начальство, долги, возраст, здоровье как бытовая тема без медицинских утверждений, соседи, транспорт, сервисы, родительские чаты, выходные и алкогольные последствия. Не превращай всё в безобидные шутки про смартфоны, доставку и опоздания.",
-          "Пятёрка должна быть разнообразной по мишеням: не менее четырёх разных жизненных сфер. Не делай пять вариаций одной темы. Каждый вариант должен содержать конкретный комический поворот, неожиданную точность или разоблачение противоречия.",
-          "Запрещены бессмысленные олицетворения предметов, случайные ассоциации, странные комбинации существительных и глаголов, искусственные метафоры и фразы, которые просто звучат необычно, но не смешны. Не делай «соседка считает себя моделью», «трамвай опаздывает, а ты проснулся» и подобные псевдошутки.",
-          "Не используй шаблон «категория людей + глагол + абстрактная глупость». Не начинай все варианты одинаково. Избегай школьного юмора, милых наблюдений, банальных каламбуров и безопасной корпоративной иронии.",
-          "Не повторяй ни один из ранее отвергнутых вариантов и их конструкций: " + JSON.stringify(previousRejectedHumorExamples()),
-          "Сначала придумай не менее двадцати разных заходов. Выбрось всё, что не вызывает хотя бы усмешку само по себе. Выбери пять наиболее смешных, дерзких и точных. Если получилось только пять посредственных фраз — придумай заново, не заполняй квоту мусором.",
-          "Проверка качества для каждой фразы: понятна с первого прочтения; есть конкретная мишень; есть панчлайн; фраза звучит естественно по-русски; это действительно смешно, а не просто грубо или странно. Если панч можно предсказать по первым словам — перепиши.",
-          "Не направляй оскорбления на женщин или детей как группы; не унижай человеческое достоинство, не используй травлю, дискриминацию, угрозы, призывы к насилию и сексуальное унижение. Не выдумывай порочащие факты о реальных людях. Резкая сатира на власть, публичные институты, компании, профессии, общественные явления и взрослых типажей допустима в рамках закона РФ.",
-          "Тема: " + JSON.stringify(russianTrends.slice(0, 12)) + ". Если тренды не подходят, используй широкую тему «Повседневная жизнь».",
-          "Одобренные пользователем шутки используй только как ориентир смелости и качества, не копируй слова, темы и конструкцию: " + JSON.stringify(likedExamples) + ".",
-          "Верни РОВНО ПЯТЬ вариантов — массив из пяти объектов с полями text и angle, плюс trend_id. Каждый text — одна самостоятельная фраза максимум из 14 слов. Пять вариантов должны отличаться темой, синтаксисом и комическим механизмом.",
-          "Без хештегов, ссылок, упоминаний и эмодзи. Только русский язык. Не используй первое лицо. Политическая сатира — в рамках закона РФ.",
-          "Верни только корректный JSON."
-        ].join("\\n") : [
-          "Ты пишешь одну короткую, едкую, взрослую русскоязычную саркастическую шутку.",
-          "Одна самостоятельная фраза, максимум семь слов. Никакой подводки и вывода.",
-          "Не используй шаблонные формулы, избитые сравнения и прежние неудачные варианты. Ищи неожиданную, конкретную мысль, а не набор модных слов.",
-          "Тон дерзкий и язвительный, допустима крепкая разговорная лексика, если она усиливает шутку.",
-          "Учитывай одобренные примеры только как ориентир качества, не копируй их конструкцию: " + JSON.stringify(likedExamples) + ".",
-          "Тренды для вдохновения, но не обязательная тема: " + JSON.stringify(russianTrends.slice(0, 12)) + ".",
-          "Без угроз, травли, дискриминации и унижения человеческого достоинства. Политическая сатира — в рамках закона.",
-          "Верни одну шутку и только текст."
-        ].join("\\n");
-    const generatedRaw = await deps.groqGenerate(env, generationPrompt, {
-      task: "hourly_social_joke_generation_and_review",
-      maxAttempts: 2,
-      temperature: 0.95,
-      maxOutputTokens: 1200
-    });
-    const rawResponse = String(generatedRaw || "").trim();
+const generationPrompt = [
+      "Ты — научный редактор и фактчекер русскоязычного канала. Подготовь подборку действительно интересных, малоизвестных и проверяемых фактов.",
+      "ТЕМА РУБРИКИ: «Интересные и малоизвестные факты». Тематика не ограничена: наука, природа, история, космос, технологии, география, культура, язык, медицина, животные, повседневные явления, архитектура, экономика и другие области.",
+      "Выбери пять фактов из пяти разных областей. Они должны удивлять содержанием, а не громкими формулировками. Избегай общеизвестных школьных фактов, мифов, городских легенд, спорных гипотез и сенсаций.",
+      "Каждый факт — только одно сухое утвердительное предложение на русском языке, максимум 12 слов. Никаких вопросов, шуток, оценок, вступлений, пояснений и эмоциональных слов.",
+      "Достоверность важнее количества. Используй Google Search grounding. Каждый факт должен подтверждаться реальным источником из результатов поиска: научной публикацией, университетом, государственным учреждением, музеем, научным журналом или авторитетной энциклопедией.",
+      "Не используй Википедию, форумы, блоги без редакционной проверки, агрегаторы, рекламные сайты и публикации без первоисточника. Не делай выводов, которых прямо не подтверждает источник.",
+      "Не придумывай цифры, даты, имена, причинно-следственные связи и детали. Не превращай приблизительные значения в точные. Если достоверность или формулировка вызывают сомнение — исключи факт.",
+      "Для каждого факта верни source_urls — точные URL источников, реально использованных при поиске. Не выдумывай адреса и не подставляй главные страницы вместо конкретных материалов.",
+      "Не повторяй недавние публикации: " + JSON.stringify(recentFunnyHistory) + ".",
+      "Верни только корректный JSON: {\"variants\":[{\"text\":\"Факт не более двенадцати слов\",\"source_urls\":[\"https://точный-источник\"]}]}. Ровно пять объектов.",
+      "Никаких хештегов, упоминаний, эмодзи, ссылок внутри самого факта и латинских слов. Ссылки передавай только в source_urls.",
+      "Не заполняй подборку сомнительными утверждениями ради количества. Если не удалось найти пять подтверждённых фактов, сообщи об этом вместо выдумывания."
+    ].join("\\n");
+    let rawResponse = "";
+    let groundingMetadata = null;
+    if (preview) {
+      if (typeof deps.geminiGenerate !== "function") throw new Error("Не подключён генератор фактов с поисковой проверкой.");
+      const grounded = await deps.geminiGenerate(env, generationPrompt, {
+        task: "hourly_verified_facts_generation",
+        maxAttempts: 2,
+        temperature: 0.2,
+        maxOutputTokens: 3000,
+        responseMimeType: "application/json",
+        googleSearch: true,
+        returnMetadata: true
+      });
+      rawResponse = String(grounded?.text || "").trim();
+      groundingMetadata = grounded?.groundingMetadata || null;
+    } else {
+      const generatedRaw = await deps.groqGenerate(env, generationPrompt, {
+        task: "hourly_fact_generation",
+        maxAttempts: 2,
+        temperature: 0.2,
+        maxOutputTokens: 800
+      });
+      rawResponse = String(generatedRaw || "").trim();
+    }
     if (preview) {
       let previewData;
       try {
@@ -366,14 +366,25 @@ const likedHumor = await storage.get("social:hourly:liked") || [];
           return { ok: true, skipped: true, reason: "preview_variants_invalid" };
         }
       }
-      const trendId = String(previewData.trend_id || previewData.trendId || "NONE");
-      const matched = /^NONE$/i.test(trendId) ? null : russianTrends.find(item => item.id === trendId);
-      const selectedTrend = matched || { id: "NONE", name: "Повседневная жизнь" };
+      const selectedTrend = { id: "FACTS", name: "Интересные и малоизвестные факты" };
       let rawVariants = Array.isArray(previewData.variants) ? previewData.variants : [];
+      const groundedChunks = Array.isArray(groundingMetadata?.groundingChunks) ? groundingMetadata.groundingChunks : [];
+      const groundedSources = groundedChunks.map(chunk => chunk?.web?.uri || chunk?.retrievedContext?.uri || "").filter(Boolean);
+      const trustedSource = url => {
+        try {
+          const host = new URL(url).hostname.toLowerCase().replace(/^www\\./u, "");
+          return host.endsWith(".gov") || host.endsWith(".edu") || host.endsWith(".int") ||
+            host.endsWith(".museum") || host.endsWith(".gov.uk") || host.endsWith(".ac.uk") ||
+            ["britannica.com","nature.com","science.org","pnas.org","cell.com","si.edu",
+             "smithsonianmag.com","nationalgeographic.com","unesco.org","rsc.org","aps.org",
+             "jstor.org","ox.ac.uk","cam.ac.uk","harvard.edu","stanford.edu"].some(domain =>
+              host === domain || host.endsWith("." + domain));
+        } catch (_) { return false; }
+      };
       const mapPreviewVariants = items => items.map((item, index) => ({
         index,
-        text: normalizeText(typeof item === "string" ? item : item?.text || item?.joke || item?.content || ""),
-        angle: normalizeText(typeof item === "object" ? item?.angle || "" : "")
+        text: normalizeText(typeof item === "string" ? item : item?.text || ""),
+        source_urls: Array.isArray(item?.source_urls) ? item.source_urls.map(normalizeText).filter(Boolean) : []
       }));
       let variants = mapPreviewVariants(rawVariants);
       const validationIssues = items => {
@@ -394,24 +405,32 @@ const likedHumor = await storage.get("social:hourly:liked") || [];
           const failure = localSafetyFailure(item.text);
           if (failure) issues.push("Вариант " + (index + 1) + ": " + failure + ".");
           const wordCount = item.text.trim().split(/\s+/u).filter(Boolean).length;
-          if (wordCount > 14) issues.push("Вариант " + (index + 1) + ": максимум четырнадцать слов, сейчас " + wordCount + ".");
-          if (/[.!?].*[.!?]/u.test(item.text)) issues.push("Вариант " + (index + 1) + ": только одна короткая фраза.");
-          if (/(^|[\s«„])(?:я|мне|меня|мой|моя|моё|мои|мы|нам|нас|наш|наша|наше|наши)(?=$|[\s,.:;!?»”])/iu.test(item.text) || /\b(?:заказал|заказала|прочитал|прочитала|купил|купила|сходил|сходила|увидел|увидела)\b/iu.test(item.text)) issues.push("Вариант " + (index + 1) + ": запрещено первое лицо и личный рассказ.");
+          if (wordCount > 12) issues.push("Вариант " + (index + 1) + ": максимум двенадцать слов, сейчас " + wordCount + ".");
+          if (/[.!?].*[.!?]/u.test(item.text)) issues.push("Вариант " + (index + 1) + ": только одно предложение.");
+          if (/[?]/u.test(item.text)) issues.push("Вариант " + (index + 1) + ": нужен утвердительный факт.");
+          if (/\b(?:возможно|вероятно|считается|предположительно|якобы|по легенде|говорят)\b/iu.test(item.text)) issues.push("Вариант " + (index + 1) + ": предположение или легенда не подходят.");
+          const verifiedUrls = item.source_urls.filter(url => groundedSources.includes(url) && trustedSource(url));
+          if (!verifiedUrls.length) issues.push("Вариант " + (index + 1) + ": нет ссылки на авторитетный источник из поисковой выдачи.");
+          if (item.source_urls.some(url => !groundedSources.includes(url))) issues.push("Вариант " + (index + 1) + ": ссылка не подтверждена Google Search grounding.");
         });
         return issues;
       };
       let issues = validationIssues(variants);
       if (issues.length) {
         console.warn("Hourly preview validation failed; requesting one repair pass:", issues);
-        const repairPrompt = generationPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ПРОВЕРКУ. Исправь его и верни заново РОВНО ПЯТЬ полноценных вариантов. Не объясняй исправления. Ошибки проверки: " + issues.join(" ") + " Верни только корректный JSON. Каждый текст должен быть на русском языке, без ссылок, хештегов, упоминаний и запрещённых оскорблений; длина каждого текста — до 500 символов.";
-        const repairedRaw = await deps.groqGenerate(env, repairPrompt, {
-          task: "hourly_humor_validation_repair",
+        const repairPrompt = generationPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ФАКТЧЕК. Подготовь заново ровно пять фактов и укажи только реальные source_urls из Google Search grounding. Исправь ошибки: " + issues.join(" ") + " Не выдумывай ссылки и утверждения.";
+        const repairedRaw = await deps.geminiGenerate(env, repairPrompt, {
+          task: "hourly_verified_facts_recheck",
           maxAttempts: 2,
-          temperature: 0.9,
-          maxOutputTokens: 1800
+          temperature: 0.1,
+          maxOutputTokens: 3000,
+          responseMimeType: "application/json",
+          googleSearch: true,
+          returnMetadata: true
         });
+        groundingMetadata = repairedRaw?.groundingMetadata || null;
         try {
-          const repairedData = parsePreviewVariants(String(repairedRaw || ""));
+          const repairedData = parsePreviewVariants(String(repairedRaw?.text || ""));
           rawVariants = Array.isArray(repairedData.variants) ? repairedData.variants : [];
           variants = mapPreviewVariants(rawVariants);
           issues = validationIssues(variants);
