@@ -348,7 +348,6 @@ const generationPrompt = [
         returnMetadata: true
       });
       rawResponse = String(grounded?.text || "").trim();
-      groundedSources = Array.isArray(grounded?.sources) ? grounded.sources : [];
     } else {
       const generatedRaw = await deps.geminiGenerate(env, groundedPrompt, {
         task: "hourly_fact_generation",
@@ -375,7 +374,7 @@ const generationPrompt = [
           "Если кандидат не подтверждается двумя источниками, замени его другим. Не требуй исключительной редкости. Не выдумывай факты, детали и ссылки.",
           "Каждый текст — одно утвердительное предложение на русском языке, не более 12 слов. Без вопросов, ссылок в тексте, хештегов, упоминаний и эмодзи.",
           "Верни только JSON: {\"variants\":[{\"text\":\"...\",\"source_urls\":[\"URL 1\",\"URL 2\"]}]}. Ровно пять объектов. Никаких пояснений или отказов.\\n\\nИСТОЧНИКИ:\\n" + sourceEvidence
-        ].join("\\n");
+        ].join("\\n") + "\\n\\nИСТОЧНИКИ:\\n" + sourceEvidence;
         const recovered = await deps.geminiGenerate(env, recoveryPrompt, {
           task: "hourly_verified_facts_recovery",
           model: "gemini-3.5-flash-lite",
