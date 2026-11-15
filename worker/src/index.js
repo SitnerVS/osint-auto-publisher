@@ -272,8 +272,7 @@ async function groqGenerate(env, prompt, options = {}) {
     reasoning_effort: options.reasoningEffort || "low",
     ...(options.browserSearch === true ? {
       tools: [{ type: "browser_search" }],
-      tool_choice: "required",
-      citation_options: "enabled"
+      tool_choice: "required"
     } : {})
   };
 
