@@ -369,8 +369,8 @@ const generationPrompt = [
       }
       const selectedTrend = { id: "FACTS", name: "Интересные и малоизвестные факты" };
       let rawVariants = Array.isArray(previewData.variants) ? previewData.variants : [];
-      const groundedChunks = Array.isArray(groundingMetadata?.groundingChunks) ? groundingMetadata.groundingChunks : [];
-      const groundedSources = groundedChunks.map(chunk => chunk?.web?.uri || chunk?.retrievedContext?.uri || "").filter(Boolean);
+      let groundedChunks = Array.isArray(groundingMetadata?.groundingChunks) ? groundingMetadata.groundingChunks : [];
+      let groundedSources = groundedChunks.map(chunk => chunk?.web?.uri || chunk?.retrievedContext?.uri || "").filter(Boolean);
       const trustedSource = url => {
         try {
           const host = new URL(url).hostname.toLowerCase().replace(/^www\./u, "");
@@ -419,6 +419,8 @@ const generationPrompt = [
           returnMetadata: true
         });
         groundingMetadata = repairedRaw?.groundingMetadata || null;
+        groundedChunks = Array.isArray(groundingMetadata?.groundingChunks) ? groundingMetadata.groundingChunks : [];
+        groundedSources = groundedChunks.map(chunk => chunk?.web?.uri || chunk?.retrievedContext?.uri || "").filter(Boolean);
         try {
           const repairedData = parsePreviewVariants(String(repairedRaw?.text || ""));
           rawVariants = Array.isArray(repairedData.variants) ? repairedData.variants : [];
