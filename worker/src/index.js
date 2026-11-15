@@ -581,13 +581,13 @@ export default {
               };
               await telegram(env, "sendMessage", {
                 chat_id: chatId,
-                text: "Ежечасная рубрика не запущена.\\nПричина: " +
+                text: "Ежечасная рубрика не запущена.\nПричина: " +
                   (reasons[result.reason] || String(result.reason || "причина не указана"))
               });
             } else if (!result.ok) {
               await telegram(env, "sendMessage", {
                 chat_id: chatId,
-                text: "Не удалось запустить ежечасную рубрику.\\nПричина: " +
+                text: "Не удалось запустить ежечасную рубрику.\nПричина: " +
                   String(result.error || "неизвестная ошибка").slice(0, 700)
               });
             }
@@ -595,7 +595,7 @@ export default {
             console.error("Manual hourly run failed:", error.message, error.stack || "");
             await telegram(env, "sendMessage", {
               chat_id: chatId,
-              text: "Ошибка запуска ежечасной рубрики.\\nПричина: " +
+              text: "Ошибка запуска ежечасной рубрики.\nПричина: " +
                 String(error.message || error).slice(0, 700)
             });
           }
