@@ -292,7 +292,7 @@ const likedHumor = await storage.get("social:hourly:liked") || [];
       } catch (firstParseError) {
         console.warn("Hourly preview returned invalid variants JSON; requesting strict JSON retry:", rawResponse.slice(0, 1200));
         const strictRetry = await deps.groqGenerate(env,
-          generationPrompt + "\\n\\nКРИТИЧЕСКИ ВАЖНО: предыдущий ответ не удалось разобрать как JSON. Верни только валидный JSON без Markdown и пояснений, строго в формате: {\\"trend_id\\":\\"NONE\\",\\"variants\\":[{\\"text\\":\\"короткая шутка\\",\\"angle\\":\\"угол\\\"}, ... ровно пять объектов]}. Проверь синтаксис JSON, экранируй кавычки внутри строк.",
+          generationPrompt + "\\n\\nКРИТИЧЕСКИ ВАЖНО: предыдущий ответ не удалось разобрать как JSON. Верни только валидный JSON без Markdown и пояснений, строго в формате: {\\\"trend_id\\\":\\\"NONE\\\",\\\"variants\\\":[{\\\"text\\\":\\\"короткая шутка\\\",\\\"angle\\\":\\\"угол\\\"}, ... ровно пять объектов]}. Проверь синтаксис JSON, экранируй кавычки внутри строк.",
           { task: "hourly_humor_json_retry", maxAttempts: 2, temperature: 0.8, maxOutputTokens: 1600 }
         );
         try {
