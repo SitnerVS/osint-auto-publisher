@@ -323,17 +323,21 @@ async function tavilySearch(env, query) {
 
   const results = Array.isArray(data.results) ? data.results : [];
   const unique = [];
-  const seen = new Set();
+  const seenUrls = new Set();
+  const distinctHosts = new Set();
   for (const item of results) {
     const url = String(item.url || "").trim();
     let host = "";
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== "https:" && parsed.protocol !== "http:") continue;
-      host = parsed.hostname.toLowerCase().replace(/^www\./u, "");
+      host = parsed.hostname.toLowerCase().replace(/^www\\./u, "");
     } catch (_) { continue; }
-    if (!url || !item.content || seen.has(host)) continue;
-    seen.add(host);
+    // Keep different pages from the same trusted publisher. The fact checker
+    // independently enforces two distinct domains for every individual fact.
+    if (!url || !item.content || seenUrls.has(url)) continue;
+    seenUrls.add(url);
+    distinctHosts.add(host);
     unique.push({
       title: String(item.title || "").slice(0, 240),
       url,
@@ -342,7 +346,9 @@ async function tavilySearch(env, query) {
   }
 
   console.log("Tavily hourly fact search completed:", {
-    results: unique.length,
+    raw_results: results.length,
+    unique_urls: unique.length,
+    distinct_hosts: distinctHosts.size,
     request_id: data.request_id || null
   });
   return unique;
