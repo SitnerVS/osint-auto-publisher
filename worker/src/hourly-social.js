@@ -487,7 +487,7 @@ const generationPrompt = [
           if (failure) issues.push("Вариант " + (index + 1) + ": " + failure + ".");
           const charCount = item.text.length;
           if (charCount > 470) issues.push("Вариант " + (index + 1) + ": максимум 470 символов с пробелами, сейчас " + charCount + ".");
-          const sentenceCount = (item.text.match(/[.!?]+(?=\\s|$)/gu) || []).length;
+          const sentenceCount = (item.text.match(/[.!?]+(?=\s|$)/gu) || []).length;
           if (sentenceCount < 2 || sentenceCount > 3) issues.push("Вариант " + (index + 1) + ": нужно 2–3 связанных предложения, сейчас " + sentenceCount + ".");
           if (/[?]/u.test(item.text)) issues.push("Вариант " + (index + 1) + ": используй повествовательную форму, не вопрос.");
           if (/\b(?:возможно|вероятно|считается|предположительно|якобы|по легенде|говорят)\b/iu.test(item.text)) issues.push("Вариант " + (index + 1) + ": предположение или легенда не подходят.");
