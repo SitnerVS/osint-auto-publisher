@@ -3,10 +3,13 @@
   "language": "ru",
   "timezone": "Europe/Moscow",
   "publishing": {
-    "feed_posts_per_day": 2,
+    "feed_posts_per_day": 5,
     "feed_schedule": [
       "09:00",
-      "18:30"
+      "12:00",
+      "15:00",
+      "18:00",
+      "21:00"
     ],
     "schedule_timezone": "Europe/Moscow",
     "approval_required": true
@@ -27,79 +30,12 @@
   "content_formats": {
     "threads_posts": {
       "enabled": true,
-      "format": "single_image_post",
-      "images_per_post": 1,
-      "aspect_ratio": "4:5"
-    },
-    "carousels": {
-      "enabled": false
+      "format": "text_only",
+      "images_per_post": 0,
+      "aspect_ratio": null
     }
   },
-  "brand_identity": {
-    "brand_positioning": "Premium investigative editorial media about OSINT, digital traces, corporate investigations and anti-fraud",
-    "visual_keywords": [
-      "investigation",
-      "corporate intelligence",
-      "financial fraud",
-      "digital traces",
-      "open source intelligence",
-      "business investigations",
-      "forensic journalism",
-      "anti-fraud",
-      "evidence"
-    ],
-    "visual_principle": "One precise topic-specific investigative vector illustration per single Threads post",
-    "visual_style": "Modern OSINT investigative media / digital detective / forensic journalism / intelligence briefing; premium flat editorial vector graphics",
-    "palette": {
-      "background": "#0B0D0F",
-      "surface": "#15181B",
-      "primary": "#E7E9EA",
-      "secondary": "#858B91",
-      "accent": "#FF5A36",
-      "verification": "#A7D65C"
-    },
-    "branding_rules": [
-      "Never display OSINTNER text, logo, brand name, watermark or social handle in generated images",
-      "No text, letters, numbers, pseudo-text or random symbols in generated images",
-      "One image per one Threads post",
-      "Every image must clearly and specifically represent the exact topic of its post",
-      "Use only the approved palette and restrained vector editorial visual language"
-    ]
-  },
-  "typography": {
-    "style": "No typography inside generated images",
-    "rules": [
-      "No text or typography in generated visuals; the post description is published as the caption in the same Threads post",
-      "No brand name, logo, watermark or signature"
-    ]
-  },
-  "negative_style_prompt": [
-    "photorealism",
-    "photography",
-    "3D",
-    "plastic CGI",
-    "anime",
-    "cartoon",
-    "cyberpunk",
-    "hacker in hoodie",
-    "matrix rain",
-    "neon RGB",
-    "futuristic holograms",
-    "sci-fi interface",
-    "technical dashboards",
-    "complex HUD",
-    "warm brown palette",
-    "golden lighting",
-    "generic stock imagery",
-    "visual clutter",
-    "text",
-    "letters",
-    "numbers",
-    "pseudo-text",
-    "logos",
-    "watermarks"
-  ],
-  "consistency_rule": "Every editorial Threads post contains exactly one topic-specific vector image and one Russian caption in the same post. Flat premium investigative editorial vector style. Strict palette #0B0D0F #15181B #E7E9EA #858B91 with accent #FF5A36 and rare verification green #A7D65C. No text of any kind, no logos, no watermark. Never create a carousel for an editorial material.",
+  "consistency_rule": "Every editorial Threads publication is one standalone Russian text-only post of up to 500 characters. No images, videos, carousels, hashtags or multi-post threads. Editorial approval is required before publishing.",
   "platforms": [
     "threads"
   ]
