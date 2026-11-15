@@ -303,15 +303,8 @@ async function tavilySearch(env, query) {
       max_results: 20,
       include_answer: false,
       include_raw_content: false,
-      include_domains: [
-        "nasa.gov", "noaa.gov", "usgs.gov", "nps.gov", "nih.gov", "loc.gov",
-        "si.edu", "smithsonianmag.com", "britannica.com", "nature.com",
-        "science.org", "pnas.org", "nationalgeographic.com", "unesco.org",
-        "rsc.org", "aps.org", "jstor.org", "ox.ac.uk", "cam.ac.uk",
-        "harvard.edu", "stanford.edu", "who.int", "esa.int",
-        "royalsocietypublishing.org", "nationalacademies.org", "metmuseum.org",
-        "amnh.org", "history.com", "noirlab.edu", "science.nasa.gov"
-      ]
+      // Do not constrain Tavily to a fixed publisher list: broad discovery
+      // is required. Trusted-domain filtering happens before Gemini sees sources.
     })
   });
 
@@ -331,7 +324,7 @@ async function tavilySearch(env, query) {
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== "https:" && parsed.protocol !== "http:") continue;
-      host = parsed.hostname.toLowerCase().replace(/^www\\./u, "");
+      host = parsed.hostname.toLowerCase().replace(/^www\./u, "");
     } catch (_) { continue; }
     // Keep different pages from the same trusted publisher. The fact checker
     // independently enforces two distinct domains for every individual fact.
