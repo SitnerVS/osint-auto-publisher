@@ -355,8 +355,20 @@ const generationPrompt = [
       } catch (firstParseError) {
         // Avoid a second full Browser Search generation just to reformat JSON.
         // Fail closed; a later preview can retry without weakening verification.
-        console.warn("Hourly preview returned invalid variants JSON; skipping without another generation:", rawResponse.slice(0, 1200));
-        return { ok: true, skipped: true, reason: "preview_variants_invalid" };
+        const diagnostic = {
+          error: firstParseError?.message || "unknown_parse_error",
+          response_length: rawResponse.length,
+          response_preview: rawResponse.slice(0, 1800)
+        };
+        console.error("Hourly preview returned invalid variants JSON; skipping without another generation:", diagnostic);
+        return {
+          ok: true,
+          skipped: true,
+          reason: "preview_variants_invalid",
+          detail: "Ошибка разбора ответа модели: " + diagnostic.error +
+            ". Длина ответа: " + diagnostic.response_length +
+            ". Фрагмент ответа: " + diagnostic.response_preview
+        };
       }
       const selectedTrend = { id: "FACTS", name: "Интересные и малоизвестные факты" };
       let rawVariants = Array.isArray(previewData.variants) ? previewData.variants : [];
