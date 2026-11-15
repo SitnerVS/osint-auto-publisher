@@ -257,7 +257,7 @@ const generationPrompt =
       "ФОРМАТ: первая строка TREND_ID: и точный ID выбранного тренда либо NONE. Вторая строка — одна готовая шутка. Либо одна строка SKIP.";
     const generatedRaw = await deps.groqGenerate(env, generationPrompt, {
       task: "hourly_social_joke_generation_and_review",
-      maxAttempts: 1,
+      maxAttempts: 2,
       temperature: 1.0,
       maxOutputTokens: 1200
     });
