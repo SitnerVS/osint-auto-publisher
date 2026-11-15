@@ -615,13 +615,16 @@ export default {
               chat_id: chatId
             });
             if (result.success) {
-              const topics = Array.isArray(result.topics) && result.topics.length
-                ? "\n\nПримеры трендов:\n" + result.topics.slice(0, 5).join("\n")
-                : "";
+              const details = (result.countries || []).map(country =>
+                country.country + ": HTTP " + country.http_status +
+                (country.count !== undefined ? ", трендов: " + country.count : ", ошибка: " + country.error) +
+                (country.topics?.length ? "\n" + country.topics.join("\n") : "") +
+                (country.response_keys?.length ? "\nПоля ответа: " + country.response_keys.join(", ") : "") +
+                (country.response_preview ? "\nОтвет API: " + country.response_preview : "")
+              ).join("\n\n");
               await telegram(env, "sendMessage", {
                 chat_id: chatId,
-                text: "THREADS TRENDING TOPICS: ДОСТУП ЕСТЬ\nHTTP: " + result.http_status +
-                  "\nПолучено трендов: " + result.count + topics +
+                text: "THREADS TRENDING TOPICS: ПРОВЕРКА ЗАВЕРШЕНА\n" + details +
                   "\n\nПроверка выполнена без генерации и публикации."
               });
             } else {
@@ -913,39 +916,49 @@ export class ApprovalCoordinator {
           if (!token?.access_token || !token?.user_id || Number(token.expires_at || 0) <= Date.now()) {
             result = { ok: true, success: false, http_status: 0, error: "Токен Threads отсутствует или истёк. Сначала проверь /threads_status." };
           } else {
-            const trendsUrl = new URL("https://graph.threads.com/v1.0/trending_topics");
-            trendsUrl.searchParams.set("country_code", "US");
-            trendsUrl.searchParams.set("access_token", token.access_token);
-            const trendsResponse = await fetch(trendsUrl.toString());
-            const trendsResult = await trendsResponse.json().catch(() => ({}));
-            if (!trendsResponse.ok) {
-              const apiError = trendsResult.error || {};
-              result = {
-                ok: true,
-                success: false,
-                http_status: trendsResponse.status,
-                error: [
-                  apiError.message || "Threads Trending Topics API вернул ошибку",
-                  apiError.type ? "type=" + apiError.type : "",
-                  apiError.code !== undefined ? "code=" + apiError.code : "",
-                  apiError.error_subcode !== undefined ? "subcode=" + apiError.error_subcode : "",
-                  apiError.fbtrace_id ? "fbtrace_id=" + apiError.fbtrace_id : ""
-                ].filter(Boolean).join("; ")
-              };
-            } else {
-              const raw = Array.isArray(trendsResult.data)
-                ? trendsResult.data
-                : Array.isArray(trendsResult.trending_topics)
-                  ? trendsResult.trending_topics
-                  : [];
-              result = {
-                ok: true,
-                success: true,
-                http_status: trendsResponse.status,
-                count: raw.length,
-                topics: raw.slice(0, 5).map(item => String(item.name || item.topic || item.title || item.trend_name || "").slice(0, 120)).filter(Boolean)
-              };
+            const countryResults = [];
+            for (const countryCode of ["US", "JP"]) {
+              const trendsUrl = new URL("https://graph.threads.com/v1.0/trending_topics");
+              trendsUrl.searchParams.set("country_code", countryCode);
+              trendsUrl.searchParams.set("access_token", token.access_token);
+              const trendsResponse = await fetch(trendsUrl.toString());
+              const trendsResult = await trendsResponse.json().catch(() => ({}));
+              if (!trendsResponse.ok) {
+                const apiError = trendsResult.error || {};
+                countryResults.push({
+                  country: countryCode,
+                  http_status: trendsResponse.status,
+                  error: [
+                    apiError.message || "Threads Trending Topics API вернул ошибку",
+                    apiError.type ? "type=" + apiError.type : "",
+                    apiError.code !== undefined ? "code=" + apiError.code : "",
+                    apiError.error_subcode !== undefined ? "subcode=" + apiError.error_subcode : "",
+                    apiError.fbtrace_id ? "fbtrace_id=" + apiError.fbtrace_id : ""
+                  ].filter(Boolean).join("; ")
+                });
+              } else {
+                const raw = Array.isArray(trendsResult.data)
+                  ? trendsResult.data
+                  : Array.isArray(trendsResult.trending_topics)
+                    ? trendsResult.trending_topics
+                    : [];
+                countryResults.push({
+                  country: countryCode,
+                  http_status: trendsResponse.status,
+                  count: raw.length,
+                  response_keys: Object.keys(trendsResult).slice(0, 12),
+                  response_preview: JSON.stringify(trendsResult).slice(0, 900),
+                  topics: raw.slice(0, 5).map(item => String(item.name || item.topic || item.title || item.trend_name || "").slice(0, 120)).filter(Boolean)
+                });
+              }
             }
+            const successful = countryResults.filter(item => item.http_status === 200);
+            result = {
+              ok: true,
+              success: successful.length > 0,
+              http_status: successful.length ? 200 : (countryResults[0]?.http_status || 0),
+              countries: countryResults
+            };
           }
         }
       } else if (path === "/threads/status") {
