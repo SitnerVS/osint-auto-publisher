@@ -616,29 +616,29 @@ export default {
             });
             if (result.success) {
               const topics = Array.isArray(result.topics) && result.topics.length
-                ? "\\n\\nПримеры трендов:\\n" + result.topics.slice(0, 5).join("\\n")
+                ? "\n\nПримеры трендов:\n" + result.topics.slice(0, 5).join("\n")
                 : "";
               await telegram(env, "sendMessage", {
                 chat_id: chatId,
-                text: "THREADS TRENDING TOPICS: ДОСТУП ЕСТЬ\\nHTTP: " + result.http_status +
-                  "\\nПолучено трендов: " + result.count + topics +
-                  "\\n\\nПроверка выполнена без генерации и публикации."
+                text: "THREADS TRENDING TOPICS: ДОСТУП ЕСТЬ\nHTTP: " + result.http_status +
+                  "\nПолучено трендов: " + result.count + topics +
+                  "\n\nПроверка выполнена без генерации и публикации."
               });
             } else {
               await telegram(env, "sendMessage", {
                 chat_id: chatId,
-                text: "THREADS TRENDING TOPICS: ДОСТУП НЕ ПОДТВЕРЖДЁН\\nHTTP: " +
-                  String(result.http_status || "—") + "\\nПричина: " +
+                text: "THREADS TRENDING TOPICS: ДОСТУП НЕ ПОДТВЕРЖДЁН\nHTTP: " +
+                  String(result.http_status || "—") + "\nПричина: " +
                   String(result.error || "неизвестная ошибка").slice(0, 700) +
-                  "\\n\\nПубликация не запускалась."
+                  "\n\nПубликация не запускалась."
               });
             }
           } catch (error) {
             await telegram(env, "sendMessage", {
               chat_id: chatId,
-              text: "Не удалось выполнить безопасную проверку трендов.\\nПричина: " +
+              text: "Не удалось выполнить безопасную проверку трендов.\nПричина: " +
                 String(error.message || error).slice(0, 700) +
-                "\\n\\nПубликация не запускалась."
+                "\n\nПубликация не запускалась."
             });
           }
         }
