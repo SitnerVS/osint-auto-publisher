@@ -992,6 +992,7 @@ export class ApprovalCoordinator {
       path !== "/generate" &&
       path !== "/publish-retry" &&
       path !== "/threads/status" &&
+      path !== "/threads/publish-check" &&
       path !== "/threads/trends-test" &&
       path !== "/threads/oauth/save-state" &&
       path !== "/threads/oauth/consume-state" &&
