@@ -247,7 +247,7 @@ async function geminiGenerate(env, prompt, options = {}) {
     const sources = Array.isArray(groundingMetadata?.groundingChunks)
       ? [...new Set(groundingMetadata.groundingChunks
           .map(chunk => String(chunk?.web?.uri || "").trim())
-          .filter(uri => /^https?:\\/\\//i.test(uri)))]
+          .filter(uri => uri.startsWith("https://") || uri.startsWith("http://")))]
       : [];
     return { text: answer, groundingMetadata, sources };
   }
