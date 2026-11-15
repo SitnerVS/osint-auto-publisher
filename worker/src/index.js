@@ -337,8 +337,13 @@ async function groqGenerate(env, prompt, options = {}) {
           : "",
         rateHeaders.retry_after ? "Повторить через " + rateHeaders.retry_after + " сек." : ""
       ].filter(Boolean).join(". ");
+      const apiCode = result.error?.code ? " Код: " + result.error.code + "." : "";
+      const apiType = result.error?.type ? " Тип: " + result.error.type + "." : "";
+      const apiReason = message && message !== "Unknown Groq API error"
+        ? " Ответ Groq: " + String(message).slice(0, 700)
+        : "";
       const friendly = response.status === 429
-        ? "Groq ограничил запросы (HTTP 429)." + (limitDetails ? " " + limitDetails : " Точные лимиты не переданы в ответе API.") + " Ничего не опубликовано."
+        ? "Groq ограничил запросы (HTTP 429)." + apiCode + apiType + apiReason + (limitDetails ? " Заголовки лимитов: " + limitDetails : " Заголовки лимитов не переданы.") + " Ничего не опубликовано."
         : "Ошибка сервиса генерации: " + message;
       throw new Error("Groq API " + response.status + ": " + friendly);
     }
