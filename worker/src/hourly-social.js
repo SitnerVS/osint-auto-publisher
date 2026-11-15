@@ -263,14 +263,37 @@ export async function runHourlyTrend(coordinator, payload, deps) {
       temperature: 0.95,
       maxOutputTokens: 350
     });
-    const candidate = parseJsonObject(generatedRaw);
+    let candidate = parseJsonObject(generatedRaw);
+
+    // A first-pass skip triggers one independent attempt across the remaining
+    // trend pool. Safety rules remain unchanged; the retry only improves topic selection.
     if (candidate.skip === true) {
-      if (!preview) await storage.put(slotKey, { status: "skipped", reason: String(candidate.reason || "no_safe_trend"), created_at: new Date().toISOString() });
+      const retryPrompt =
+        "Первая попытка не выбрала тренд. Сделай вторую независимую попытку и не повторяй прежний отказ автоматически. " +
+        "Внимательно просмотри ВЕСЬ список трендов и найди хотя бы один нейтральный вариант, который можно органично связать с технологиями, интернетом, цифровыми привычками, работой или повседневной жизнью. " +
+        "Не выбирай политику, конфликты, трагедии, преступления, катастрофы, здоровье, сексуальные темы, дискриминацию или конкретных реальных людей. " +
+        "Не нужно шутить непосредственно о знаменитости или событии: можно взять безопасную ассоциацию, бытовую ситуацию или цифровую привычку, если связь с трендом понятна. " +
+        "Сделай одну действительно остроумную короткую публикацию с чётким панчлайном. Не используй вопрос ради вопроса, банальный каламбур, нейтральное наблюдение или псевдофилософию. " +
+        "Не выдумывай факты и не представляй гипотезы как новости. Если подходящий нейтральный тренд всё-таки есть — выбери его. Верни skip=true ТОЛЬКО если после проверки всего списка ни один тренд нельзя безопасно и естественно использовать. " +
+        "Верни строго JSON: {\\"skip\\":true,\\"reason\\":\\"краткая причина\\"} либо {\\"skip\\":false,\\"trend_id\\":\\"ID\\",\\"text\\":\\"готовая шутка\\"}. " +
+        "Тренды: " + JSON.stringify(trends) + "\\nПредыдущий отказ: " + JSON.stringify(candidate.reason || "не указана") +
+        "\\nУже опубликованные шутки, не повторять: " + JSON.stringify(recentFunnyHistory);
+      const retryRaw = await deps.geminiGenerate(env, retryPrompt, {
+        task: "hourly_social_copy_retry",
+        temperature: 1.0,
+        maxOutputTokens: 350
+      });
+      candidate = parseJsonObject(retryRaw);
+    }
+
+    if (candidate.skip === true) {
+      const skipReason = String(candidate.reason || "После повторной попытки подходящего безопасного тренда не найдено").slice(0, 300);
+      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "no_safe_trend", detail: skipReason, created_at: new Date().toISOString() });
       await deps.telegram(env, "sendMessage", {
         chat_id: env.TELEGRAM_CHAT_ID,
-        text: "Тренды проверены, но подходящей безопасной темы для юмористического поста не нашлось. Публикацию пропустил."
+        text: "Тренды проверены, но подходящей безопасной темы для юмористического поста не нашлось.\nПричина: " + skipReason + "\n\nПубликацию пропустил."
       });
-      return { ok: true, skipped: true, reason: "no_safe_trend" };
+      return { ok: true, skipped: true, reason: "no_safe_trend", detail: skipReason };
     }
 
     const text = normalizeText(candidate.text);
