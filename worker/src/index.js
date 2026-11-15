@@ -152,7 +152,7 @@ async function geminiGenerate(env, prompt, options = {}) {
   let response;
   let result;
   let retryDelaySeconds = null;
-  const maxAttempts = 3;
+  const maxAttempts = Math.max(1, Math.min(3, Number(options.maxAttempts) || 3));
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     response = await requestGemini(model, requestBody);
