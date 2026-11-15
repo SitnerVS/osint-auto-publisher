@@ -425,7 +425,7 @@ function hourlyVariantsPayload(chatId, result, messageId = null) {
     chat_id: chatId,
     text: "ЕЖЕЧАСНЫЙ ЮМОР — ВЫБЕРИ ОДИН ВАРИАНТ\n" +
       "Тема: " + (result.trend || "Свободная тема") + "\n" +
-      "На выбор — 10 минут. Публикация только после твоего нажатия.\n\n" + lines,
+      "На выбор — 3 минуты. Публикация только после твоего нажатия.\n\n" + lines,
     reply_markup: { inline_keyboard: keyboard }
   };
   if (messageId) payload.message_id = messageId;
@@ -1533,7 +1533,7 @@ export class ApprovalCoordinator {
         } else {
           result = await runHourlyTrend(this, payload, { groqGenerate, telegram });
           if (result.preview && result.session_id) {
-            await this.ctx.storage.setAlarm(Date.now() + 10 * 60 * 1000);
+            await this.ctx.storage.setAlarm(Date.now() + 3 * 60 * 1000);
           }
         }
       } else if (path === "/hourly-expire") {
