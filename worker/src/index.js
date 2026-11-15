@@ -269,7 +269,12 @@ async function groqGenerate(env, prompt, options = {}) {
     // GPT-OSS spends completion tokens on internal reasoning before writing.
     // Reserve enough budget so reasoning does not consume the entire response.
     max_completion_tokens: options.maxOutputTokens ?? 4096,
-    reasoning_effort: options.reasoningEffort || "low"
+    reasoning_effort: options.reasoningEffort || "low",
+    ...(options.browserSearch === true ? {
+      tools: [{ type: "browser_search" }],
+      tool_choice: "required",
+      citation_options: "enabled"
+    } : {})
   };
 
   let response;
@@ -332,6 +337,13 @@ async function groqGenerate(env, prompt, options = {}) {
   }
 
   console.log("Groq generation successful:", options.task || "generation");
+  if (options.returnMetadata === true) {
+    const executedTools = Array.isArray(message.executed_tools) ? message.executed_tools : [];
+    const sources = executedTools.flatMap(tool =>
+      Array.isArray(tool?.browser_results) ? tool.browser_results.map(item => item?.url || "").filter(Boolean) : []
+    );
+    return { text: answer, sources: [...new Set(sources)] };
+  }
   return answer;
 }
 
