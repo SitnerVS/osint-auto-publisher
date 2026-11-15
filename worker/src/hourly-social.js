@@ -342,7 +342,7 @@ const generationPrompt =
     }
     const editorPrompt =
       "Ты — независимый редактор короткой русскоязычной сатиры. Исправь черновик так, чтобы это была настоящая шутка, а не случайная ассоциация. " +
-      "Тренд: " + JSON.stringify(selectedTrend.name) + ". Черновик: " + JSON.stringify(finalText) + ". " +
+      "Тренд: " + JSON.stringify(selectedTrend.name) + ". Черновик: " + JSON.stringify(text) + ". " +
       "Одна короткая фраза, естественный разговорный русский. Оставь только то, что связано с конкретным смыслом тренда. " +
       "Найди узнаваемое противоречие, человеческую реакцию, абсурд официальной формулировки или точное бытовое следствие. Панчлайн должен логично вытекать из захода и неожиданно его переосмысливать. " +
       "Удали случайные ассоциации, бессмысленный сюрреализм, несвязанные темы, искусственные метафоры, банальности и нейросетевые каламбуры. Провокационность должна быть меткой, а не просто грубой. " +
@@ -376,7 +376,7 @@ const generationPrompt =
 const moderationPrompt =
       "Проверь только безопасность и достоверность. Отклоняй реальные угрозы, призывы к насилию, травлю, дискриминацию защищённых групп, сексуальное унижение, издевательство над жертвами трагедий и заведомо ложные факты о реальных людях. " +
       "Не отклоняй за сарказм, провокационность, резкую критику политики, институтов, корпораций, технологий и общественных явлений. Не требуй доброты или мягкости. Если конкретного вреда нет — safe=true. " +
-      "Тренд не доказывает событие или рост частоты; отклоняй только неподтверждённое утверждение, поданное как факт. Верни строго JSON {\"safe\":true|false,\"reason\":\"короткая причина\"}.\\nТекст: " + JSON.stringify(text);
+      "Тренд не доказывает событие или рост частоты; отклоняй только неподтверждённое утверждение, поданное как факт. Верни строго JSON {\"safe\":true|false,\"reason\":\"короткая причина\"}.\\nТекст: " + JSON.stringify(finalText);
     const moderationRaw = await deps.geminiGenerate(env, moderationPrompt, {
       task: "hourly_social_moderation",
       temperature: 0.1,
@@ -394,14 +394,14 @@ const moderationPrompt =
 
 
     if (preview) {
-      return { ok: true, preview: true, trend: selectedTrend.name, text };
+      return { ok: true, preview: true, trend: selectedTrend.name, text: finalText };
     }
 
     let threadsResult = null;
     let threadsError = "";
 
     try {
-      threadsResult = await publishThreads(env, threadsToken, text);
+      threadsResult = await publishThreads(env, threadsToken, finalText);
     } catch (error) {
       threadsError = String(error.message || error);
       console.error("Hourly Threads publishing failed:", threadsError);
@@ -412,7 +412,7 @@ const moderationPrompt =
       slot,
       trend_id: selectedTrend.id,
       trend: selectedTrend.name,
-      text,
+      text: finalText,
       ...(threadsResult ? { published_at: eventAt } : { failed_at: eventAt }),
       threads_post_id: threadsResult?.id || "",
       threads_permalink: threadsResult?.permalink || "",
