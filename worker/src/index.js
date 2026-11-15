@@ -577,7 +577,9 @@ export default {
               const reasons = {
                 threads_publishing_disabled: "Публикации Threads отключены в настройках Worker.",
                 hourly_rubric_disabled: "Ежечасная рубрика сейчас отключена. Включи её через /menu.",
-                slot_already_processed: "В этом часовом слоте рубрика уже запускалась. Повторный запуск заблокирован, чтобы избежать дубля."
+                slot_already_processed: "В этом часовом слоте уже была попытка запуска. Повторный запуск доступен после проверки результата.",
+                slot_already_published: "В этом часовом слоте пост уже опубликован. Повторная публикация заблокирована.",
+                slot_in_progress: "Запуск этого часового слота ещё выполняется. Подожди до 10 минут и проверь снова."
               };
               await telegram(env, "sendMessage", {
                 chat_id: chatId,
