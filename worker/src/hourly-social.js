@@ -314,7 +314,7 @@ export async function runHourlyTrend(coordinator, payload, deps) {
 const generationPrompt = [
       "Ты — научный редактор русскоязычной рубрики «Интересные и малоизвестные факты». Подготовь ровно пять коротких, содержательных и достоверных фактов для Threads.",
       "Подбирай интересные, хорошо документированные факты. Не ищи сенсации. Охвати пять разных областей: природа, космос, история, география, технологии, медицина, язык, культура или наука.",
-      "Каждый факт — одно утвердительное предложение на русском языке, максимум 12 слов. Без вопросов, оценок, вступлений, хештегов, упоминаний и эмодзи.",
+      "Каждый факт — одно утвердительное предложение на русском языке, СТРОГО НЕ БОЛЕЕ 12 слов. Считай слова как отдельные группы, разделённые пробелами; безопасная цель — 8–10 слов. Перед ответом пересчитай слова в каждом предложении. Без вопросов, оценок, вступлений, хештегов, упоминаний и эмодзи.",
       "ИСТОЧНИКИ: ниже приведён каталог результатов Tavily. У каждого источника есть числовой ID и домен. Для каждого факта выбери РОВНО ДВА ID источников, которые прямо подтверждают именно этот факт. Два источника обязательно должны иметь РАЗНЫЕ домены. Не выбирай два URL одного домена.",
       "Используй только источники из каталога. Не выдумывай ID, URL, цифры, даты, имена и причинно-следственные связи. Если не можешь найти два подходящих источника с разными доменами, выбери другой факт.",
       "Подходят государственные учреждения, университеты, научные журналы, музеи и авторитетные энциклопедии. Не используй форумы, рекламные сайты и непроверенные блоги. Не выдавай гипотезы и легенды за установленные факты.",
@@ -324,13 +324,36 @@ const generationPrompt = [
     ].join("\n");
     if (typeof deps.tavilySearch !== "function") throw new Error("Внешний поиск фактов не подключён. Нужен TAVILY_API_KEY в Cloudflare Worker Secrets.");
     const searchResults = await deps.tavilySearch(env, "well documented interesting facts nature animals astronomy history geography science technology university museum government research");
-    const groundedSources = [...new Set((searchResults || []).map(item => String(item.url || "").trim()).filter(url => url.startsWith("https://") || url.startsWith("http://")))];
-    if (groundedSources.length < 10) throw new Error("Внешний поиск вернул меньше десяти источников; подготовка остановлена.");
-    const sourceInventory = (searchResults || []).map((item, index) => {
+    // Give Gemini at most one page per independent publisher domain.
+    // This makes it impossible for two selected source IDs to resolve to Britannica (or any other single publisher).
+    const compoundSuffixes = new Set(["co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "edu.au", "co.nz", "com.br", "co.jp"]);
+    const rootDomain = host => {
+      const labels = String(host || "").toLowerCase().replace(/^www\\./u, "").split(".").filter(Boolean);
+      if (labels.length < 2) return "";
+      const suffix = labels.slice(-2).join(".");
+      return labels.length >= 3 && compoundSuffixes.has(suffix) ? labels.slice(-3).join(".") : suffix;
+    };
+    const sourceInventory = [];
+    const seenPublisherDomains = new Set();
+    for (const item of (searchResults || [])) {
+      const url = String(item.url || "").trim();
+      if (!/^https?:\\/\\//iu.test(url)) continue;
       let host = "";
-      try { host = new URL(String(item.url || "")).hostname.toLowerCase().replace(/^www\./u, ""); } catch (_) {}
-      return { id: index + 1, host, url: String(item.url || ""), title: String(item.title || ""), content: String(item.content || "") };
-    });
+      try { host = new URL(url).hostname.toLowerCase().replace(/^www\\./u, ""); } catch (_) { continue; }
+      const publisherDomain = rootDomain(host);
+      if (!publisherDomain || seenPublisherDomains.has(publisherDomain)) continue;
+      seenPublisherDomains.add(publisherDomain);
+      sourceInventory.push({
+        id: sourceInventory.length + 1,
+        host,
+        publisher_domain: publisherDomain,
+        url,
+        title: String(item.title || ""),
+        content: String(item.content || "")
+      });
+    }
+    const groundedSources = sourceInventory.map(item => item.url);
+    if (groundedSources.length < 10) throw new Error("Внешний поиск вернул меньше десяти независимых доменов; найдено: " + groundedSources.length + ". Подготовка остановлена.");
     const sourceEvidence = sourceInventory.map(item =>
       "[" + item.id + "] ДОМЕН: " + item.host + "\nЗАГОЛОВОК: " + item.title +
       "\nURL: " + item.url + "\nФРАГМЕНТ: " + item.content.slice(0, 1100)
@@ -465,7 +488,7 @@ const generationPrompt = [
       let issues = validationIssues(variants);
       if (issues.length) {
         console.warn("Hourly preview validation failed; requesting one repair pass:", issues);
-        const repairPrompt = groundedPrompt + "\n\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ПРОВЕРКУ. Подготовь заново ровно пять фактов. Для каждого укажи ровно два source_ids из каталога, подтверждающих факт и имеющих РАЗНЫЕ домены. Верни только JSON с полями text и source_ids; URL не выдумывай и не возвращай. Ошибки: " + issues.join(" ");
+        const repairPrompt = groundedPrompt + "\n\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ПРОВЕРКУ. Исправь все перечисленные ошибки и верни ровно пять фактов. КРИТИЧЕСКИ ВАЖНО: каждый факт — одно утвердительное предложение максимум из 12 слов; цель — 8–10 слов. Считай слова по пробелам и обязательно пересчитай каждый вариант перед ответом. Ни один вариант не может содержать 13 слов или больше. Для каждого факта укажи ровно два разных source_ids из каталога; каждый ID уже относится к отдельному независимому домену. Не выбирай одинаковые ID. Верни только JSON с полями text и source_ids; URL не выдумывай и не возвращай. Ошибки, которые нужно исправить: " + issues.join(" ");
         const repairedRaw = await deps.geminiGenerate(env, repairPrompt, {
           task: "hourly_verified_facts_recheck",
           model: "gemini-3.5-flash-lite",
