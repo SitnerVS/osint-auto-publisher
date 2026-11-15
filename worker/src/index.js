@@ -126,7 +126,6 @@ async function geminiGenerate(env, prompt, options = {}) {
 
   console.log("Gemini request started:", options.task || "generation");
 
-  const humorCreativeTask = /^(manual_humor_variants|manual_humor_editor|hourly_social_copy|hourly_social_copy_retry)$/.test(String(options.task || ""));
   const model = options.model || "gemini-3.5-flash-lite";
   const requestBody = {
     contents: [{ parts: [{ text: prompt }] }],
@@ -162,16 +161,35 @@ async function geminiGenerate(env, prompt, options = {}) {
   }
 
   if (!response.ok) {
-    const errorMessage =
-      result.error?.message || "Unknown Gemini error";
+    const errorMessage = result.error?.message || "Unknown Gemini error";
+    const details = Array.isArray(result.error?.details) ? result.error.details : [];
+    const quotaInfo = details
+      .map(item => {
+        const info = item?.metadata || {};
+        const parts = [];
+        if (info.quotaMetric) parts.push("quotaMetric=" + info.quotaMetric);
+        if (info.quotaId) parts.push("quotaId=" + info.quotaId);
+        if (info.consumer) parts.push("consumer=" + info.consumer);
+        if (item?.retryDelay) parts.push("retryDelay=" + item.retryDelay);
+        return parts.join(", ");
+      })
+      .filter(Boolean)
+      .join("; ");
+    const retryAfter = response.headers.get("retry-after");
+    const diagnostic = [
+      quotaInfo ? "Детали лимита: " + quotaInfo : "",
+      retryAfter ? "Повторить через: " + retryAfter + " сек." : ""
+    ].filter(Boolean).join(". ");
 
     console.error("Gemini API error:", {
       status: response.status,
-      message: errorMessage
+      message: errorMessage,
+      quotaInfo,
+      retryAfter
     });
 
     throw new Error(
-      `Gemini API ${response.status}: ${errorMessage}`
+      `Gemini API ${response.status}: ${errorMessage}${diagnostic ? ". " + diagnostic : ""}`
     );
   }
 
