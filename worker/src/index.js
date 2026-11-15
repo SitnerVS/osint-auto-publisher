@@ -260,7 +260,10 @@ async function groqGenerate(env, prompt, options = {}) {
     model,
     messages: [{ role: "user", content: prompt }],
     temperature: options.temperature ?? 0.7,
-    max_completion_tokens: options.maxOutputTokens ?? 1000,
+    // GPT-OSS spends completion tokens on internal reasoning before writing.
+    // Reserve enough budget so reasoning does not consume the entire response.
+    max_completion_tokens: options.maxOutputTokens ?? 4096,
+    reasoning_effort: options.reasoningEffort || "low"
   };
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -279,14 +282,23 @@ async function groqGenerate(env, prompt, options = {}) {
     throw new Error("Groq API " + response.status + ": " + message);
   }
 
-  const content = result.choices?.[0]?.message?.content;
+  const choice = result.choices?.[0] || {};
+  const message = choice.message || {};
+  const content = message.content ?? message.reasoning_content ?? message.reasoning;
   const answer = Array.isArray(content)
     ? content.map(part => typeof part === "string" ? part : part?.text || "").join("").trim()
     : String(content || "").trim();
 
   if (!answer) {
-    console.error("Groq returned no text:", JSON.stringify(result).slice(0, 1200));
-    throw new Error("Groq returned an empty response");
+    const finishReason = choice.finish_reason || "unknown";
+    const usage = result.usage || {};
+    console.error("Groq returned no text:", JSON.stringify({
+      id: result.id,
+      finish_reason: finishReason,
+      usage,
+      message_keys: Object.keys(message)
+    }).slice(0, 1200));
+    throw new Error("Groq returned an empty response (finish_reason=" + finishReason + ", completion_tokens=" + (usage.completion_tokens ?? "unknown") + ")");
   }
 
   console.log("Groq generation successful:", options.task || "generation");
