@@ -10,13 +10,20 @@ function normalizeText(value) {
   return String(value || "").replace(/\s+/g, " ").replace(/^["«]|["»]$/g, "").trim();
 }
 
-export function isLocallySafe(text) {
-  if (!text || text.length < 25 || text.length > 260) return false;
-  if (/[#@]|https?:\/\//i.test(text)) return false;
+export function localSafetyFailure(text) {
+  if (!text) return "пустой текст";
+  if (text.length < 25) return "слишком короткий текст (меньше 25 символов)";
+  if (text.length > 260) return "слишком длинный текст (больше 260 символов)";
+  if (/[#@]|https?:\/\//i.test(text)) return "обнаружены хештег, упоминание или ссылка";
   const body = text.replace(/[.!?…]+[»”"']?$/u, "");
-  if (/[.!?…]/u.test(body)) return false;
+  if (/[.!?…]/u.test(body)) return "несколько предложений или внутренняя пунктуация; фильтр допускает одно предложение";
   const forbidden = /(убий|убить|насил|пытк|расстрел|теракт|катастроф|погиб|смерт|изнасил|порно|наркот|алкогол|расист|нацист|ксенофоб|гомофоб|сексист|женоненав|травл|буллинг|оскорб|униж|дебил|идиот|урод|тупиц|мраз|чмо|хуй|пизд|бляд|ебан|шлюх|проститут|инвалид|политик|выборы|президент|парламент|обстрел|бомб|пожар|наводнен|землетряс|болезн|эпидем|пандем|суицид|самоуб|самоповрежд|насмешк|внешност|нищет|бедност)/iu;
-  return !forbidden.test(text);
+  if (forbidden.test(text)) return "обнаружено слово или словоформа из списка ограничений безопасности";
+  return "";
+}
+
+export function isLocallySafe(text) {
+  return !localSafetyFailure(text);
 }
 
 export async function publishThreads(env, token, text) {
@@ -73,7 +80,7 @@ export async function generateHumorVariants(env, topic, previousTexts, geminiGen
     "Пиши как остроумный живой человек, а не как корпоративный SMM, пресс-служба или нейросеть. Естественный современный русский, конкретные слова и детали, хороший ритм, без канцелярита и объяснения шутки. " +
     "СТРОГО НЕ ДЕЛАЙ: риторические вопросы ради вопроса; заходы «интересно, а…», «а что если…», «кажется, мы…»; банальные сравнения; очевидные каламбуры; абстрактные рассуждения; псевдоглубокие выводы; искусственно приклеенный юмор к теме. Если шутка не смешная без пояснений — перепиши её. " +
     "Пять вариантов должны быть действительно разными по мысли, а не пятью перефразировками. Не используй одинаковое начало и одинаковую структуру. " +
-    "Каждый вариант — 1–2 коротких предложения, 60–240 символов. Допустима разговорная интонация, но не грубость. " +
+    "Каждый вариант — ОДНО короткое предложение, 60–240 символов. Не ставь знаки конца предложения внутри текста; в конце допустима одна финальная точка. Допустима разговорная интонация, но не грубость. " +
     "Не выдавай вымысел за новость или факт. Если тема не содержит проверенных сведений, шути через гипотезу, личную реакцию, вымышленную бытовую сцену или метафору. " +
     "Запрещены насилие, смерть, трагедии, катастрофы, преступления, травля, пошлость, сексуальные темы, сексизм, унижение, оскорбления, дискриминация, политика, религиозные и национальные конфликты, шутки о внешности, здоровье, возрасте, бедности и личных трагедиях. Не делай мишенью конкретных людей и уязвимые группы. " +
     "Без хештегов, ссылок, упоминаний и эмодзи. " +
@@ -112,7 +119,10 @@ export async function generateHumorVariants(env, topic, previousTexts, geminiGen
   const results = Array.isArray(moderation.results) ? moderation.results : [];
   const safeIndices = new Set(results.filter(item => item.safe === true).map(item => Number(item.index)));
   if (safeIndices.size !== 5 || variants.some(item => !safeIndices.has(item.index))) {
-    throw new Error("Пятёрка не прошла смысловую проверку безопасности. Нажми «Повторная генерация».");
+    const rejected = results.filter(item => item.safe !== true)
+      .map(item => "№" + (Number(item.index) + 1) + ": " + normalizeText(item.reason || "модератор отклонил вариант"))
+      .slice(0, 5);
+    throw new Error("Пятёрка не прошла смысловую проверку. Причины: " + (rejected.join("; ") || "модератор не вернул причины") + ". Нажми «Повторная генерация».");
   }
   return variants;
 }
@@ -306,13 +316,14 @@ export async function runHourlyTrend(coordinator, payload, deps) {
       });
       return { ok: true, skipped: true, reason: "unknown_trend_id" };
     }
-    if (!isLocallySafe(text)) {
-      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "local_safety_filter", created_at: new Date().toISOString() });
+    const localFailure = localSafetyFailure(text);
+    if (localFailure) {
+      if (!preview) await storage.put(slotKey, { status: "skipped", reason: "local_safety_filter", detail: localFailure, created_at: new Date().toISOString() });
       await deps.telegram(env, "sendMessage", {
         chat_id: env.TELEGRAM_CHAT_ID,
-        text: "Черновик ежечасной рубрики не прошёл первичный фильтр безопасности или формата. Ничего не опубликовано."
+        text: "Черновик ежечасной рубрики не прошёл первичный фильтр. Причина: " + localFailure + ". Ничего не опубликовано."
       });
-      return { ok: true, skipped: true, reason: "local_safety_filter" };
+      return { ok: true, skipped: true, reason: "local_safety_filter", detail: localFailure };
     }
 
     const moderationPrompt =
