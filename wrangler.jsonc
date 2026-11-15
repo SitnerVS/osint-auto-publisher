@@ -8,15 +8,6 @@
     "TELEGRAM_CHAT_ID": "1664476273",
     "THREADS_PUBLISHING_ENABLED": "false"
   },
-  "ai": {
-    "binding": "AI"
-  },
-  "kv_namespaces": [
-    {
-      "binding": "EDITORIAL_DATA",
-      "id": "aed1626849ee4364bc3b3d008db2916a"
-    }
-  ],
   "durable_objects": {
     "bindings": [
       {
@@ -33,8 +24,7 @@
   },
   "triggers": {
     "crons": [
-      "0 * * * *",
-      "30 15 * * *"
+      "0 * * * *"
     ]
   }
 }
