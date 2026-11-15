@@ -1,6 +1,6 @@
 
 import settings from "../../config/settings.json" with { type: "json" };
-import { runHourlyTrend, generateHumorVariants, publishThreads } from "./hourly-social.js";
+import { runHourlyTrend, runHourlyAutoPublish, generateHumorVariants, publishThreads } from "./hourly-social.js";
 
 const SETTINGS = settings;
 
@@ -1380,21 +1380,11 @@ export default {
         const hourlySettings = await callCoordinator(env, "/hourly-settings", {
           action: "get", user_id: env.TELEGRAM_CHAT_ID, chat_id: env.TELEGRAM_CHAT_ID
         });
-        if (hourlyState.active) {
-          console.log("Hourly facts are awaiting the user's choice:", hourlyState.active.session_id);
-        } else if (localTime.endsWith(":00") && hourlySettings.enabled === true) {
-          const hourlyResult = await callCoordinator(env, "/hourly-trend", {
-            scheduled_at: controller.scheduledTime, manual: true, preview: true
+        if (localTime.endsWith(":00") && hourlySettings.enabled === true) {
+          const hourlyResult = await callCoordinator(env, "/hourly-auto-publish", {
+            scheduled_at: controller.scheduledTime
           });
-          if (hourlyResult.preview && hourlyResult.session_id) {
-            await telegram(env, "sendMessage", hourlyVariantsPayload(env.TELEGRAM_CHAT_ID, hourlyResult));
-            console.log("Hourly fact options sent for approval:", hourlyResult.session_id);
-          } else {
-            await telegram(env, "sendMessage", {
-              chat_id: env.TELEGRAM_CHAT_ID,
-              text: "Не удалось подготовить ежечасную подборку фактов. Причина: " + String(hourlyResult.reason || hourlyResult.error || "неизвестная ошибка")
-            });
-          }
+          console.log("Hourly OSINT/compliance/anti-fraud auto-publish result:", hourlyResult);
         }
       } catch (error) {
         console.error("Scheduled social workflow failed:", error.message);
@@ -1442,6 +1432,7 @@ export class ApprovalCoordinator {
       path !== "/threads/oauth/consume-state" &&
       path !== "/threads/oauth/save-token" &&
       path !== "/hourly-trend" &&
+      path !== "/hourly-auto-publish" &&
       path !== "/hourly-settings" &&
       path !== "/hourly-select" &&
       path !== "/hourly-reject" &&
@@ -1678,6 +1669,10 @@ export class ApprovalCoordinator {
           }
           result = { ok: true, enabled: enabled === true };
         }
+      } else if (path === "/hourly-auto-publish") {
+        const hourlyEnabled = await this.ctx.storage.get("social:hourly:enabled");
+        if (hourlyEnabled === false) result = { ok: true, skipped: true, reason: "hourly_rubric_disabled" };
+        else result = await runHourlyAutoPublish(this, payload, { geminiGenerate, tavilySearch, telegram });
       } else if (path === "/hourly-trend") {
         const hourlyEnabled = await this.ctx.storage.get("social:hourly:enabled");
         if (hourlyEnabled === false && payload?.preview !== true) {
