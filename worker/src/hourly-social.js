@@ -220,7 +220,8 @@ export async function runHourlyTrend(coordinator, payload, deps) {
       .sort((a, b) => a.rank - b.rank)
       .slice(0, 20);
 
-    // Trend data is optional; humor generation continues even without a fresh trend.\n\n    const itemEntries = await storage.list({ prefix: "item:" });
+    // Trend data is optional; humor generation continues even without a fresh trend.
+    const itemEntries = await storage.list({ prefix: "item:" });
     const editorialHistory = [...itemEntries.values()]
       .filter(item => item && (item.title || item.text_content))
       .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
