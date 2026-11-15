@@ -137,17 +137,26 @@ async function geminiGenerate(env, prompt, options = {}) {
   };
   if (options.googleSearch === true) requestBody.tools = [{ google_search: {} }];
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+  const requestGemini = async (selectedModel, body) => fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-goog-api-key": env.GEMINI_API_KEY
       },
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify(body)
     }
   );
+
+  let response = await requestGemini(model, requestBody);
+
+  // If the stronger humor model is rate-limited, make one controlled fallback
+  // attempt with the lighter model. Never loop or retry indefinitely.
+  if (response.status === 429 && model !== "gemini-3.5-flash-lite") {
+    console.warn("Gemini primary model rate-limited; trying one lite-model fallback.");
+    response = await requestGemini("gemini-3.5-flash-lite", requestBody);
+  }
 
   let result;
 
