@@ -261,9 +261,6 @@ async function groqGenerate(env, prompt, options = {}) {
     messages: [{ role: "user", content: prompt }],
     temperature: options.temperature ?? 0.7,
     max_completion_tokens: options.maxOutputTokens ?? 1000,
-    ...(options.responseMimeType === "application/json"
-      ? { response_format: { type: "json_object" } }
-      : {})
   };
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
