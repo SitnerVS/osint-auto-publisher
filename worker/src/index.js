@@ -1238,23 +1238,38 @@ export class ApprovalCoordinator {
   // ==================================================
 
   async generateDraftText(item, rejectedVersions = []) {
-    const rejectedTextBlock = rejectedVersions.length
-      ? "\nОТКЛОНЁННЫЕ ВЕРСИИ — НЕ ПОВТОРЯТЬ: " + rejectedVersions.slice(-3).map(value => String(value).slice(0, 700)).join("\n")
+    const topicContext = String(
+      item.topic_context ||
+      (item.text_content && item.content === item.text_content
+        ? item.title
+        : item.content || item.title || "")
+    ).slice(0, 5000);
+    const rejected = rejectedVersions
+      .slice(-3)
+      .map((value, index) => `ОТКЛОНЁННАЯ РЕДАКЦИЯ ${index + 1}:\n${String(value).slice(0, 700)}`)
+      .join("\n\n");
+    const isRevision = rejectedVersions.length > 0;
+    const revisionInstructions = isRevision
+      ? "\n\nРЕЖИМ РЕДАКТОРСКОЙ ДОРАБОТКИ: предыдущая редакция была отклонена. Отклонённые редакции ниже приведены ИСКЛЮЧИТЕЛЬНО как примеры того, что нельзя повторять. Не используй их как фактический контекст и не копируй их структуру или формулировки. Сначала самостоятельно определи слабые места предыдущих версий: неточные термины, логические ошибки, неподтверждённые выводы, пропущенные важные оговорки, повторы и неестественный язык. Затем создай действительно новую, более точную редакцию. Сохрани тему, но измени формулировки и логику изложения там, где это необходимо. Если в отклонённых версиях есть спорное утверждение, исправь его, а не перефразируй. Не возвращайся к формулировкам вроде «свежий возраст домена». Для темы о сайтах-клонах обязательно различай регистрацию домена, историю домена и назначение SSL-сертификата: SSL подтверждает защищённое соединение, но сам по себе не подтверждает подлинность сайта."
+      : "";
+    const rejectedTextBlock = rejected
+      ? "\n\nОТКЛОНЁННЫЕ РЕДАКЦИИ — ТОЛЬКО ДЛЯ АНАЛИЗА ОШИБОК, НЕ ПОВТОРЯТЬ:\n" + rejected
       : "";
     const prompt =
       "Ты редактор OSINTNER — профессионального медиа об OSINT, комплаенсе и антифроде. Подготовь один законченный пост Threads на русском языке.\n" +
       "ТЕМА: " + String(item.title || "") + "\n" +
       "КАТЕГОРИЯ: " + String(item.category || "") + "\n" +
-      "МАТЕРИАЛЬНЫЙ КОНТЕКСТ: " + String(item.content || "").slice(0, 5000) + "\n\n" +
+      "ИСХОДНЫЙ КОНТЕКСТ ТЕМЫ (это единственный контекст для содержания): " + topicContext + "\n\n" +
       "ОБЯЗАТЕЛЬНО: максимум 470 символов с пробелами. Один пост, не цепочка и не серия. Начни с конкретного тезиса, кратко объясни суть темы, дай одно практическое действие и точный вывод. Текст должен быть самостоятельным и содержательным, не просто рекламным тизером. " +
       "Строго соответствуй теме. Не подменяй её соседним сюжетом и не добавляй сведения, которых нет в контексте или в общеизвестной методологии. Не выдумывай компании, цифры, события, документы, судебные дела, источники или результаты проверок. " +
       "Разделяй факт, индикатор риска и гипотезу. Не выдавай совпадение или косвенный признак за доказательство. Для риска кратко обозначь, что именно требуется перепроверить. Не раскрывай персональные данные и не предлагай незаконный доступ. " +
       "Профессиональный естественный русский язык, без канцелярита, хештегов, ссылок на продолжение, слов «часть 1», длинных заголовков и структуры большой статьи. " +
       "Верни только текст одного поста без кавычек и редакторских пояснений. Проверь фактическую осторожность, завершённость мысли и длину до 470 символов." +
+      revisionInstructions +
       rejectedTextBlock;
     const result = (await geminiGenerate(this.env, prompt, {
-      task: "threads_single_post",
-      temperature: 0.45,
+      task: isRevision ? "threads_editorial_revision" : "threads_single_post",
+      temperature: isRevision ? 0.35 : 0.45,
       maxOutputTokens: 500
     })).trim();
     if (!result || [...result].length < 80) {
@@ -1263,7 +1278,7 @@ export class ApprovalCoordinator {
     if ([...result].length > 500) {
       throw new Error("Generated Threads post exceeds 500 characters");
     }
-    if (/#\w/u.test(result)) {
+    if (/#\\w/u.test(result)) {
       throw new Error("Generated Threads post contains a hashtag");
     }
     return result;
@@ -1334,6 +1349,7 @@ export class ApprovalCoordinator {
         const current = await txn.get(itemKey);
         if (!current || current.status !== "generating_alternative_text") return;
         const timestamp = new Date().toISOString();
+        current.topic_context = current.topic_context || (current.content === current.text_content ? current.title : current.content) || current.title || "";
         current.text_content = generatedText;
         current.content = generatedText;
         current.stage = "text";
@@ -1381,6 +1397,7 @@ export class ApprovalCoordinator {
 
         const timestamp = new Date().toISOString();
 
+        item.topic_context = item.topic_context || item.content || item.title || "";
         item.text_content = generatedText;
         item.content = generatedText;
         item.stage = "text";
