@@ -170,22 +170,20 @@ export async function runHourlyTrend(coordinator, payload, deps) {
   if (!preview) await storage.put(slotKey, { status: "started", created_at: new Date().toISOString() });
 
   try {
-    const trendsUrl = new URL("https://graph.threads.com/v1.0/trending_topics");
-    trendsUrl.searchParams.set("country_code", "US");
-    trendsUrl.searchParams.set("access_token", threadsToken.access_token);
-    const trendsResponse = await fetch(trendsUrl.toString());
-    const trendsResult = await trendsResponse.json().catch(() => ({}));
-    if (!trendsResponse.ok) {
-      const apiError = trendsResult.error || {};
-      const details = [
-        "HTTP " + trendsResponse.status,
-        apiError.message || "Threads trends API failed",
-        apiError.type ? "type=" + apiError.type : "",
-        apiError.code !== undefined ? "code=" + apiError.code : "",
-        apiError.error_subcode !== undefined ? "subcode=" + apiError.error_subcode : "",
-        apiError.fbtrace_id ? "fbtrace_id=" + apiError.fbtrace_id : ""
-      ].filter(Boolean).join("; ");
-      throw new Error("Threads trends API: " + details);
+    let trendsResult = {};
+    try {
+      const trendsUrl = new URL("https://graph.threads.com/v1.0/trending_topics");
+      trendsUrl.searchParams.set("country_code", "US");
+      trendsUrl.searchParams.set("access_token", threadsToken.access_token);
+      const trendsResponse = await fetch(trendsUrl.toString());
+      const responseData = await trendsResponse.json().catch(() => ({}));
+      if (trendsResponse.ok) {
+        trendsResult = responseData;
+      } else {
+        console.warn("Threads trends unavailable; generating humor without trend data:", trendsResponse.status, responseData.error?.message || "");
+      }
+    } catch (trendError) {
+      console.warn("Threads trends request failed; generating humor without trend data:", trendError.message);
     }
 
     const rawTrends = Array.isArray(trendsResult.trends)
