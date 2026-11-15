@@ -331,9 +331,9 @@ const generationPrompt = [
       if (typeof deps.groqGenerate !== "function") throw new Error("Не подключён Groq с браузерным поиском для проверки фактов.");
       const grounded = await deps.groqGenerate(env, generationPrompt, {
         task: "hourly_verified_facts_generation",
-        maxAttempts: 2,
+        maxAttempts: 1,
         temperature: 0.2,
-        maxOutputTokens: 3000,
+        maxOutputTokens: 1800,
         browserSearch: true,
         returnMetadata: true
       });
@@ -353,18 +353,10 @@ const generationPrompt = [
       try {
         previewData = parsePreviewVariants(rawResponse);
       } catch (firstParseError) {
-        console.warn("Hourly preview returned invalid variants JSON; requesting strict JSON retry:", rawResponse.slice(0, 1200));
-        const strictRetry = await deps.groqGenerate(env,
-          generationPrompt + "\\n\\nКРИТИЧЕСКИ ВАЖНО: верни только валидный JSON без Markdown и пояснений. Для каждого факта укажи source_urls только из реальных результатов browser_search. Не выдумывай факты и ссылки.",
-          { task: "hourly_verified_facts_json_retry", maxAttempts: 2, temperature: 0.1, maxOutputTokens: 3000, browserSearch: true, returnMetadata: true }
-        );
-        groundedSources = Array.isArray(strictRetry?.sources) ? strictRetry.sources : [];
-        try {
-          previewData = parsePreviewVariants(String(strictRetry?.text || ""));
-        } catch (secondParseError) {
-          console.warn("Hourly facts strict JSON retry also failed:", String(strictRetry?.text || "").slice(0, 1200));
-          return { ok: true, skipped: true, reason: "preview_variants_invalid" };
-        }
+        // Avoid a second full Browser Search generation just to reformat JSON.
+        // Fail closed; a later preview can retry without weakening verification.
+        console.warn("Hourly preview returned invalid variants JSON; skipping without another generation:", rawResponse.slice(0, 1200));
+        return { ok: true, skipped: true, reason: "preview_variants_invalid" };
       }
       const selectedTrend = { id: "FACTS", name: "Интересные и малоизвестные факты" };
       let rawVariants = Array.isArray(previewData.variants) ? previewData.variants : [];
@@ -411,9 +403,9 @@ const generationPrompt = [
         const repairPrompt = generationPrompt + "\\n\\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ФАКТЧЕК. Подготовь заново ровно пять фактов и укажи только реальные source_urls из браузерного поиска Groq. Исправь ошибки: " + issues.join(" ") + " Не выдумывай ссылки и утверждения.";
         const repairedRaw = await deps.groqGenerate(env, repairPrompt, {
           task: "hourly_verified_facts_recheck",
-          maxAttempts: 2,
+          maxAttempts: 1,
           temperature: 0.1,
-          maxOutputTokens: 3000,
+          maxOutputTokens: 1800,
           browserSearch: true,
           returnMetadata: true
         });
