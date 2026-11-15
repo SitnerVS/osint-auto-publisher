@@ -131,7 +131,8 @@ async function geminiGenerate(env, prompt, options = {}) {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
       temperature: options.temperature ?? 0.7,
-      maxOutputTokens: options.maxOutputTokens ?? 2500
+      maxOutputTokens: options.maxOutputTokens ?? 2500,
+      ...(options.responseMimeType ? { responseMimeType: options.responseMimeType } : {})
     }
   };
   if (options.googleSearch === true) requestBody.tools = [{ google_search: {} }];
