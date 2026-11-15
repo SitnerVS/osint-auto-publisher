@@ -317,7 +317,7 @@ async function tavilySearch(env, query) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = String(data.detail || data.message || data.error || "Unknown Tavily error").slice(0, 500);
+    const message = String(data.detail?.error || data.message || data.error || data.detail || "Unknown Tavily error").slice(0, 500);
     throw new Error("Tavily Search API " + response.status + ": " + message);
   }
 
