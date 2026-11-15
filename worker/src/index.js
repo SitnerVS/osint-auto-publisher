@@ -498,7 +498,8 @@ export default {
               "/test — тест согласования\n" +
               "/generate — генерация новой темы\n" +
               "/publish_retry ID — безопасно повторить попытку Threads\n" +
-              "/threads_status — проверить подключение Threads\n" +\n              "/threads_publish_check — диагностика прав публикации Threads\n" +
+              "/threads_status — проверить подключение Threads\n" +
+              "/threads_publish_check — диагностика прав публикации Threads\n" +
               "/threads_trends_test — безопасно проверить доступ к трендам Threads\n" +
               "/hourly_preview — проверить генерацию без публикации\n" +
               "/hourly_start — включить рубрику и запустить первую публикацию\n" +
