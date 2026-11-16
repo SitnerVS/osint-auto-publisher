@@ -747,55 +747,28 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
   }
 
   const utcHour = Math.floor(scheduledAt / 3600000);
-  const track = HOURLY_EDITORIAL_TRACKS[((utcHour % HOURLY_EDITORIAL_TRACKS.length) + HOURLY_EDITORIAL_TRACKS.length) % HOURLY_EDITORIAL_TRACKS.length];
+  const preferredIndex = ((utcHour % HOURLY_EDITORIAL_TRACKS.length) + HOURLY_EDITORIAL_TRACKS.length) % HOURLY_EDITORIAL_TRACKS.length;
+  const candidateTracks = HOURLY_EDITORIAL_TRACKS.map((_, i) => HOURLY_EDITORIAL_TRACKS[(preferredIndex + i) % HOURLY_EDITORIAL_TRACKS.length]);
+  let track = candidateTracks[0];
   await storage.put(slotKey, { status: "started", started_at_ms: Date.now(), track: track.name, created_at: new Date().toISOString() });
 
   try {
     if (typeof deps.tavilySearch !== "function") throw new Error("Tavily не подключён: отсутствует TAVILY_API_KEY.");
-    // Run a high-relevance search. Compliance also gets a second,
-    // regulator-focused search so general technology results cannot crowd out
-    // primary legal and supervisory sources.
-    const complianceDomains = [
-      "fatf-gafi.org","fincen.gov","ofac.treasury.gov","treasury.gov","sec.gov","federalreserve.gov",
-      "occ.treas.gov","fdic.gov","finra.org","justice.gov","cftc.gov","fca.org.uk","gov.uk",
-      "eba.europa.eu","esma.europa.eu","eiopa.europa.eu","edpb.europa.eu","eur-lex.europa.eu",
-      "ec.europa.eu","eba.europa.eu","bankingsupervision.europa.eu","bis.org","fsb.org","oecd.org",
-      "cbr.ru","fedsfm.ru","nalog.gov.ru","minfin.gov.ru","pravo.gov.ru","publication.pravo.gov.ru",
-      "eec.eaeunion.org","eaeunion.org","knf.gov.pl","gov.pl"
-    ];
-    const primarySearch = deps.tavilySearch(
-      env,
-      track.query + " latest developments official regulator enforcement guidance 2026",
-      { search_depth: "advanced", max_results: 20 }
-    );
-    const searchTasks = [primarySearch];
-    if (track.name === "Комплаенс") {
-      searchTasks.push(deps.tavilySearch(
-        env,
-        "latest compliance AML KYC sanctions beneficial ownership financial crime regulatory guidance enforcement 2026",
-        { search_depth: "advanced", max_results: 20, include_domains: complianceDomains }
-      ));
-      searchTasks.push(deps.tavilySearch(
-        env,
-        "новые требования комплаенс ПОД ФТ KYC санкции проверка контрагентов разъяснения регулятора 2026",
-        { search_depth: "advanced", max_results: 20, include_domains: complianceDomains }
-      ));
-    }
-    const searchBatches = await Promise.all(searchTasks);
-    const searchResults = searchBatches.flat();
     const trustedDomains = [
       "cisa.gov","fbi.gov","ic3.gov","nist.gov","ftc.gov","sec.gov","justice.gov","treasury.gov",
       "fincen.gov","ofac.treasury.gov","federalreserve.gov","occ.treas.gov","fdic.gov","finra.org","cftc.gov",
       "europa.eu","ec.europa.eu","eur-lex.europa.eu","bankingsupervision.europa.eu","edpb.europa.eu",
       "eba.europa.eu","esma.europa.eu","eiopa.europa.eu","fca.org.uk","gov.uk","fatf-gafi.org","oecd.org",
       "bis.org","fsb.org","cbr.ru","fedsfm.ru","nalog.gov.ru","minfin.gov.ru","pravo.gov.ru",
-      "publication.pravo.gov.ru","eec.eaeunion.org","eaeunion.org","knf.gov.pl",
+      "publication.pravo.gov.ru","eec.eaeunion.org","eaeunion.org","knf.gov.pl","gov.pl",
       "interpol.int","coe.int","enisa.europa.eu","cert.europa.eu",
       "arxiv.org","ieee.org","acm.org","computer.org","nature.com","science.org","pnas.org",
       "mit.edu","stanford.edu","berkeley.edu","ox.ac.uk","cam.ac.uk","nvidia.com","microsoft.com",
       "openai.com","deepmind.google","ai.google","ibm.com","intel.com","amd.com","cloudflare.com",
       "krebsonsecurity.com","therecord.media","bleepingcomputer.com","darkreading.com","wired.com",
-      "reuters.com","apnews.com","bbc.com","ft.com"
+      "reuters.com","apnews.com","bbc.com","ft.com","theguardian.com","wsj.com","nytimes.com",
+      "bellingcat.com","occrp.org","globalwitness.org","transparency.org","amnesty.org","hrw.org",
+      "techcrunch.com","arstechnica.com","theverge.com","zdnet.com","securityweek.com"
     ];
     const rootDomain = host => {
       const labels = String(host || "").toLowerCase().replace(/^www\./u, "").split(".").filter(Boolean);
@@ -804,20 +777,60 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const compound = new Set(["co.uk","org.uk","ac.uk","gov.uk","com.au","edu.au","co.nz","com.br","co.jp"]);
       return labels.length >= 3 && compound.has(suffix) ? labels.slice(-3).join(".") : suffix;
     };
-    const sources = [];
-    const seenDomains = new Set();
-    for (const item of (searchResults || [])) {
-      const url = String(item.url || "").trim();
-      if (!/^https?:\/\//iu.test(url)) continue;
-      let host = "";
-      try { host = new URL(url).hostname.toLowerCase().replace(/^www\./u, ""); } catch (_) { continue; }
-      if (!trustedDomains.some(domain => host === domain || host.endsWith("." + domain))) continue;
-      const domain = rootDomain(host);
-      if (!domain || seenDomains.has(domain)) continue;
-      seenDomains.add(domain);
-      sources.push({ id: sources.length + 1, host, domain, url, title: String(item.title || ""), content: String(item.content || "").slice(0, 1000) });
+    let sources = [];
+    let searchFailure = "";
+    // Never stop at a weak first topic: rotate through all three editorial tracks,
+    // using several differently worded searches per track until two publishers
+    // independently cover a candidate news item.
+    for (const candidate of candidateTracks) {
+      track = candidate;
+      await storage.put(slotKey, { status: "started", started_at_ms: Date.now(), track: track.name, created_at: new Date().toISOString() });
+      const queries = [
+        track.query + " latest news investigation report 2026",
+        track.query + " official announcement research findings incident 2026",
+        track.focus + " recent developments primary source independent reporting"
+      ];
+      if (track.name === "OSINT") {
+        queries.push("open source investigation geolocation digital forensics public records investigative journalism latest 2026");
+      } else if (track.name === "Комплаенс") {
+        queries.push("AML KYC sanctions enforcement regulator guidance FATF FinCEN FCA EBA 2026");
+        queries.push("ПОД ФТ комплаенс новые требования разъяснения Банк России Росфинмониторинг 2026");
+      } else {
+        queries.push("fraud scam deepfake cybercrime threat intelligence law enforcement report 2026");
+      }
+      const gathered = [];
+      for (const query of queries) {
+        try {
+          const batch = await deps.tavilySearch(env, query, { search_depth: "advanced", max_results: 20 });
+          gathered.push(...(Array.isArray(batch) ? batch : []));
+        } catch (error) {
+          searchFailure = String(error.message || error);
+          console.error("Hourly source search attempt failed:", { track: track.name, query, error: searchFailure });
+        }
+        const domainSet = new Set();
+        const candidateSources = [];
+        for (const item of gathered) {
+          const url = String(item.url || "").trim();
+          if (!/^https?:\/\//iu.test(url)) continue;
+          let host = "";
+          try { host = new URL(url).hostname.toLowerCase().replace(/^www\./u, ""); } catch (_) { continue; }
+          if (!trustedDomains.some(domain => host === domain || host.endsWith("." + domain))) continue;
+          const domain = rootDomain(host);
+          if (!domain || domainSet.has(domain)) continue;
+          domainSet.add(domain);
+          candidateSources.push({ id: candidateSources.length + 1, host, domain, url, title: String(item.title || ""), content: String(item.content || "").slice(0, 1200) });
+        }
+        if (candidateSources.length >= 2) {
+          sources = candidateSources;
+          break;
+        }
+      }
+      if (sources.length >= 2) break;
+      console.warn("Hourly topic has insufficient trusted independent sources; switching track:", track.name);
     }
-    if (sources.length < 2) throw new Error("По выбранному направлению не найдено двух независимых авторитетных источников. Публикация остановлена.");
+    if (sources.length < 2) {
+      throw new Error("После повторного поиска по OSINT, Комплаенсу и Антифроду не удалось найти два независимых авторитетных источника. " + (searchFailure ? "Последняя ошибка поиска: " + searchFailure : "Следующий запуск повторит поиск."));
+    }
     const sourceCatalogue = sources.map(s => "[" + s.id + "] " + s.host + " | " + s.title + " | " + s.url + "\n" + s.content).join("\n\n");
     const prompt = [
       "Ты — выпускающий редактор профессионального русскоязычного медиа об OSINT, комплаенсе и антифроде.",
