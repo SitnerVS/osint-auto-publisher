@@ -285,27 +285,29 @@ async function geminiGenerate(env, prompt, options = {}) {
 // INDEPENDENT WEB SEARCH — hourly facts
 // ======================================================
 
-async function tavilySearch(env, query) {
+async function tavilySearch(env, query, options = {}) {
   if (!env.TAVILY_API_KEY) {
     throw new Error("TAVILY_API_KEY is not configured. Add the Tavily key as a Cloudflare Worker secret.");
   }
 
+  const requestBody = {
+    query,
+    topic: "general",
+    search_depth: options.search_depth || "basic",
+    max_results: Math.max(5, Math.min(20, Number(options.max_results) || 20)),
+    include_answer: false,
+    include_raw_content: false
+  };
+  if (Array.isArray(options.include_domains) && options.include_domains.length) {
+    requestBody.include_domains = options.include_domains;
+  }
   const response = await fetch("https://api.tavily.com/search", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": "Bearer " + env.TAVILY_API_KEY
     },
-    body: JSON.stringify({
-      query,
-      topic: "general",
-      search_depth: "basic",
-      max_results: 20,
-      include_answer: false,
-      include_raw_content: false,
-      // Do not constrain Tavily to a fixed publisher list: broad discovery
-      // is required. Trusted-domain filtering happens before Gemini sees sources.
-    })
+    body: JSON.stringify(requestBody)
   });
 
   const data = await response.json().catch(() => ({}));
@@ -740,9 +742,9 @@ async function callCoordinator(env, path, payload) {
   }
 
   if (!response.ok || !result.ok) {
-    throw new Error(
-      `Approval Coordinator error: ${result.error || response.status}`
-    );
+    const detail = String(result.error || result.message || response.status);
+    console.error("Approval Coordinator request failed:", { path, status: response.status, detail });
+    throw new Error(`Approval Coordinator ${path} error: ${detail} (HTTP ${response.status})`);
   }
 
   return result;
