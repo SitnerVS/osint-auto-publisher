@@ -844,6 +844,6 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       chat_id: env.TELEGRAM_CHAT_ID,
       text: "Ежечасный пост не опубликован — проверка остановила выпуск.\nНаправление: " + track.name + "\nПричина: " + String(error.message || error).slice(0, 600)
     });
-    return { ok: false, skipped: true, reason: "editorial_validation_or_publish_failed", detail: String(error.message || error) };
+    return { ok: true, skipped: true, reason: "editorial_validation_or_publish_failed", detail: String(error.message || error) };
   }
 }
