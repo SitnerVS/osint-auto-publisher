@@ -752,11 +752,45 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
 
   try {
     if (typeof deps.tavilySearch !== "function") throw new Error("Tavily не подключён: отсутствует TAVILY_API_KEY.");
-    const searchResults = await deps.tavilySearch(env, track.query + " latest developments 2026");
+    // Run a high-relevance search. Compliance also gets a second,
+    // regulator-focused search so general technology results cannot crowd out
+    // primary legal and supervisory sources.
+    const complianceDomains = [
+      "fatf-gafi.org","fincen.gov","ofac.treasury.gov","treasury.gov","sec.gov","federalreserve.gov",
+      "occ.treas.gov","fdic.gov","finra.org","justice.gov","cftc.gov","fca.org.uk","gov.uk",
+      "eba.europa.eu","esma.europa.eu","eiopa.europa.eu","edpb.europa.eu","eur-lex.europa.eu",
+      "ec.europa.eu","eba.europa.eu","bankingsupervision.europa.eu","bis.org","fsb.org","oecd.org",
+      "cbr.ru","fedsfm.ru","nalog.gov.ru","minfin.gov.ru","pravo.gov.ru","publication.pravo.gov.ru",
+      "eec.eaeunion.org","eaeunion.org","knf.gov.pl","gov.pl"
+    ];
+    const primarySearch = deps.tavilySearch(
+      env,
+      track.query + " latest developments official regulator enforcement guidance 2026",
+      { search_depth: "advanced", max_results: 20 }
+    );
+    const searchTasks = [primarySearch];
+    if (track.name === "Комплаенс") {
+      searchTasks.push(deps.tavilySearch(
+        env,
+        "latest compliance AML KYC sanctions beneficial ownership financial crime regulatory guidance enforcement 2026",
+        { search_depth: "advanced", max_results: 20, include_domains: complianceDomains }
+      ));
+      searchTasks.push(deps.tavilySearch(
+        env,
+        "новые требования комплаенс ПОД ФТ KYC санкции проверка контрагентов разъяснения регулятора 2026",
+        { search_depth: "advanced", max_results: 20, include_domains: complianceDomains }
+      ));
+    }
+    const searchBatches = await Promise.all(searchTasks);
+    const searchResults = searchBatches.flat();
     const trustedDomains = [
       "cisa.gov","fbi.gov","ic3.gov","nist.gov","ftc.gov","sec.gov","justice.gov","treasury.gov",
-      "fincen.gov","ofac.treasury.gov","europa.eu","edpb.europa.eu","eba.europa.eu","esma.europa.eu",
-      "fatf-gafi.org","oecd.org","interpol.int","coe.int","enisa.europa.eu","cert.europa.eu",
+      "fincen.gov","ofac.treasury.gov","federalreserve.gov","occ.treas.gov","fdic.gov","finra.org","cftc.gov",
+      "europa.eu","ec.europa.eu","eur-lex.europa.eu","bankingsupervision.europa.eu","edpb.europa.eu",
+      "eba.europa.eu","esma.europa.eu","eiopa.europa.eu","fca.org.uk","gov.uk","fatf-gafi.org","oecd.org",
+      "bis.org","fsb.org","cbr.ru","fedsfm.ru","nalog.gov.ru","minfin.gov.ru","pravo.gov.ru",
+      "publication.pravo.gov.ru","eec.eaeunion.org","eaeunion.org","knf.gov.pl",
+      "interpol.int","coe.int","enisa.europa.eu","cert.europa.eu",
       "arxiv.org","ieee.org","acm.org","computer.org","nature.com","science.org","pnas.org",
       "mit.edu","stanford.edu","berkeley.edu","ox.ac.uk","cam.ac.uk","nvidia.com","microsoft.com",
       "openai.com","deepmind.google","ai.google","ibm.com","intel.com","amd.com","cloudflare.com",
