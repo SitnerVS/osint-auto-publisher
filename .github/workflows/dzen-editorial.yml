@@ -1,6 +1,9 @@
 name: Dzen Editorial Engine
 
 on:
+  push:
+    branches:
+      - feature/dzen-editorial-engine
   schedule:
     # Europe/Moscow (UTC+3): 09:00, 12:00, 15:00, 18:00, 21:00
     - cron: "0 6 * * *"
@@ -63,7 +66,7 @@ jobs:
           PAGES_BASE_URL: https://sitnervs.github.io/osint-auto-publisher
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           ARTICLE_CATEGORY: ${{ inputs.category }}
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          DRY_RUN: ${{ github.event_name != 'schedule' && (inputs.dry_run != false) }}
         run: python scripts/dzen_editorial.py
 
       - name: Commit generated article and RSS
