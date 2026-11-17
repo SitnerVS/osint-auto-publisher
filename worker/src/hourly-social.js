@@ -951,9 +951,9 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       source_domains: selectedSources.map(s => s.domain),
       threads_post_id: published.id, threads_permalink: published.permalink, published_at: at
     };
-    const history = await storage.get("social:hourly:auto_history") || [];
-    history.push(record);
-    await storage.put("social:hourly:auto_history", history.slice(-100));
+    const publishHistory = await storage.get("social:hourly:auto_history") || [];
+    publishHistory.push(record);
+    await storage.put("social:hourly:auto_history", publishHistory.slice(-100));
     await storage.put("social:hourly:auto_last_published_at", Date.now());
     await storage.put(slotKey, { status: "published", ...record });
     await deps.telegram(env, "sendMessage", {
