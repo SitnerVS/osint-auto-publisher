@@ -700,6 +700,50 @@ const generationPrompt = [
 }
 
 
+
+function normalizeHourlyStoryText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/ё/gu, "е")
+    .replace(/https?:\\/\\/\\S+/gu, " ")
+    .replace(/[^\\p{L}\\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\\s+/gu, " ");
+}
+
+function hourlyStorySimilarity(left, right) {
+  const a = new Set(normalizeHourlyStoryText(left).split(" ").filter(token => token.length > 2));
+  const b = new Set(normalizeHourlyStoryText(right).split(" ").filter(token => token.length > 2));
+  if (!a.size || !b.size) return 0;
+  let intersection = 0;
+  for (const token of a) if (b.has(token)) intersection++;
+  return intersection / (a.size + b.size - intersection);
+}
+
+function isDuplicateHourlyStory(text, selectedSources, history) {
+  const normalized = normalizeHourlyStoryText(text);
+  const selectedUrls = new Set((selectedSources || []).map(source => {
+    try {
+      const url = new URL(source.url);
+      return (url.hostname + url.pathname).toLowerCase().replace(/\\/$/u, "");
+    } catch (_) { return String(source.url || "").toLowerCase(); }
+  }).filter(Boolean));
+  for (const previous of (Array.isArray(history) ? history : []).slice(-100)) {
+    if (hourlyStorySimilarity(text, previous.text) >= 0.34) return true;
+    const previousUrls = new Set((previous.source_urls || []).map(value => {
+      try {
+        const url = new URL(value);
+        return (url.hostname + url.pathname).toLowerCase().replace(/\\/$/u, "");
+      } catch (_) { return String(value || "").toLowerCase(); }
+    }).filter(Boolean));
+    let shared = 0;
+    for (const url of selectedUrls) if (previousUrls.has(url)) shared++;
+    if (shared >= 2) return true;
+    if (normalized && normalizeHourlyStoryText(previous.text) === normalized) return true;
+  }
+  return false;
+}
+
 const HOURLY_EDITORIAL_TRACKS = [
   {
     name: "OSINT",
@@ -821,8 +865,8 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           candidateSources.push({ id: candidateSources.length + 1, host, domain, url, title: String(item.title || ""), content: String(item.content || "").slice(0, 1200) });
         }
         if (candidateSources.length >= 2) {
+          // Keep gathering across all query variants so retries have alternative stories.
           sources = candidateSources;
-          break;
         }
       }
       if (sources.length >= 2) break;
@@ -832,38 +876,72 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       throw new Error("После повторного поиска по OSINT, Комплаенсу и Антифроду не удалось найти два независимых авторитетных источника. " + (searchFailure ? "Последняя ошибка поиска: " + searchFailure : "Следующий запуск повторит поиск."));
     }
     const sourceCatalogue = sources.map(s => "[" + s.id + "] " + s.host + " | " + s.title + " | " + s.url + "\n" + s.content).join("\n\n");
-    const prompt = [
-      "Ты — выпускающий редактор профессионального русскоязычного медиа об OSINT, комплаенсе и антифроде.",
-      "ТЕКУЩЕЕ НАПРАВЛЕНИЕ: " + track.name + ". Тематический фокус: " + track.focus + ".",
-      "Выбери ОДНО самое значимое, свежее и содержательное событие или исследование из предоставленного каталога источников и подготовь ОДИН готовый пост для Threads.",
-      "Пост: 2–3 полных связанных предложения, 180–470 символов. Первое сообщает, что произошло; второе раскрывает конкретную подтверждённую деталь и объясняет практическое значение; третье допустимо для контекста. Не пиши заголовок отдельно.",
-      "Используй только факты, которые прямо подтверждаются минимум двумя независимыми источниками из каталога. Укажи точные названия организаций, продукта, технологии или документа, если они есть в источниках. Не выдумывай даты, цифры, цитаты, компании и причинно-следственные связи. Не превращай предположение в факт.",
-      "Стиль: профессиональный, аналитический, ясный, без рекламных формулировок, сенсационности и искусственной драматизации. Пиши естественным русским языком; общепринятые аббревиатуры OSINT, KYC, KYB, AML, AI и названия продуктов можно сохранять.",
-      "Без хештегов, ссылок, упоминаний, эмодзи и вопросов. Не повторяй последние публикации: " + JSON.stringify((await storage.get("social:hourly:auto_history") || []).slice(-12).map(x => x.text)),
-      "Верни строго JSON вида " + JSON.stringify({ category: track.name, text: "Два или три предложения поста.", source_ids: [1,2] }) + ". Ровно один объект. source_ids — ровно два разных числовых ID из каталога.",
-      "КАТАЛОГ ИСТОЧНИКОВ:\n" + sourceCatalogue
-    ].join("\n\n");
-    const generated = await deps.geminiGenerate(env, prompt, {
-      task: "hourly_osint_compliance_antifraud_post",
-      model: "gemini-3.5-flash-lite",
-      fallbackModels: ["gemini-3.1-flash-lite"],
-      maxAttempts: 1,
-      temperature: 0.2,
-      maxOutputTokens: 1200
-    });
-    const parsed = parseJsonObject(generated);
-    const text = normalizeText(parsed.text || parsed.post || "");
-    const sourceIds = Array.isArray(parsed.source_ids) ? parsed.source_ids.map(Number) : [];
-    const selectedSources = sourceIds.map(id => sources.find(s => s.id === id)).filter(Boolean);
-    const sentenceCount = (text.match(/[.!?]+(?=\s|$)/gu) || []).length;
-    if (!text || text.length < 140 || text.length > 470 || sentenceCount < 2 || sentenceCount > 3) {
-      throw new Error("Пост не прошёл редакционную проверку: требуется 2–3 предложения и 140–470 символов.");
+    const history = await storage.get("social:hourly:auto_history") || [];
+    const recentHistory = history.slice(-100);
+    const rejectedCandidates = [];
+    let text = "";
+    let selectedSources = [];
+    let sourceIds = [];
+    let duplicateGuardPassed = false;
+    let lastGenerationError = "";
+
+    // Generate and validate several candidates. A repeated story is rejected locally,
+    // regardless of whether the model follows the anti-repetition instruction.
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      const prompt = [
+        "Ты — выпускающий редактор профессионального русскоязычного медиа об OSINT, комплаенсе и антифроде.",
+        "ТЕКУЩЕЕ НАПРАВЛЕНИЕ: " + track.name + ". Тематический фокус: " + track.focus + ".",
+        "Выбери ОДНО свежее событие или исследование из каталога источников и подготовь ОДИН готовый пост для Threads.",
+        "Пост: 2–3 полных связанных предложения, 180–470 символов. Первое сообщает, что произошло; второе раскрывает подтверждённую деталь и практическое значение; третье допустимо для контекста.",
+        "Используй только факты, прямо подтверждаемые минимум двумя независимыми источниками. Не выдумывай факты, даты, цифры и причинно-следственные связи.",
+        "Стиль профессиональный, аналитический и естественный. Без хештегов, ссылок, упоминаний, эмодзи и вопросов.",
+        "КРИТИЧЕСКИ ВАЖНО: не используй ни одно событие из истории и списка отклонённых кандидатов. Если тема уже встречалась, выбери ДРУГОЕ событие из каталога, а не переписывай старую новость другими словами.",
+        "Последние опубликованные новости: " + JSON.stringify(recentHistory.slice(-30).map(item => ({ text: item.text, source_urls: item.source_urls || [] }))),
+        "Отклонённые в этой сессии кандидаты: " + JSON.stringify(rejectedCandidates),
+        "Попытка " + attempt + " из 4. Верни строго JSON вида " + JSON.stringify({ category: track.name, text: "Два или три предложения поста.", source_ids: [1,2] }) + ". source_ids — ровно два разных числовых ID.",
+        "КАТАЛОГ ИСТОЧНИКОВ:\n" + sourceCatalogue
+      ].join("\n\n");
+      try {
+        const generated = await deps.geminiGenerate(env, prompt, {
+          task: "hourly_osint_compliance_antifraud_post",
+          model: "gemini-3.5-flash-lite",
+          fallbackModels: ["gemini-3.1-flash-lite"],
+          maxAttempts: 1,
+          temperature: 0.35,
+          maxOutputTokens: 1200
+        });
+        const parsed = parseJsonObject(generated);
+        const candidateText = normalizeText(parsed.text || parsed.post || "");
+        const candidateIds = Array.isArray(parsed.source_ids) ? parsed.source_ids.map(Number) : [];
+        const candidateSources = candidateIds.map(id => sources.find(source => source.id === id)).filter(Boolean);
+        const sentenceCount = (candidateText.match(/[.!?]+(?=\\s|$)/gu) || []).length;
+        if (!candidateText || candidateText.length < 140 || candidateText.length > 470 || sentenceCount < 2 || sentenceCount > 3) {
+          throw new Error("Пост не прошёл редакционную проверку: требуется 2–3 предложения и 140–470 символов.");
+        }
+        if (!/[А-Яа-яЁё]/u.test(candidateText) || /[#@]|https?:\\/\\//iu.test(candidateText) || /\\?/u.test(candidateText)) {
+          throw new Error("Пост не прошёл языковой и форматный фильтр.");
+        }
+        if (candidateIds.length !== 2 || candidateSources.length !== 2 || new Set(candidateSources.map(source => source.domain)).size !== 2) {
+          throw new Error("Не подтверждены два независимых источника.");
+        }
+        if (isDuplicateHourlyStory(candidateText, candidateSources, recentHistory)) {
+          rejectedCandidates.push({ text: candidateText, source_urls: candidateSources.map(source => source.url), reason: "duplicate_of_previous_publication" });
+          lastGenerationError = "Обнаружен повтор ранее опубликованной новости";
+          console.warn("Hourly candidate rejected as duplicate:", { attempt, category: track.name });
+          continue;
+        }
+        text = candidateText;
+        sourceIds = candidateIds;
+        selectedSources = candidateSources;
+        duplicateGuardPassed = true;
+        break;
+      } catch (error) {
+        lastGenerationError = String(error.message || error);
+        if (attempt === 4) throw error;
+      }
     }
-    if (!/[А-Яа-яЁё]/u.test(text) || /[#@]|https?:\/\//iu.test(text) || /\?/u.test(text)) {
-      throw new Error("Пост не прошёл языковой и форматный фильтр.");
-    }
-    if (sourceIds.length !== 2 || selectedSources.length !== 2 || new Set(selectedSources.map(s => s.domain)).size !== 2) {
-      throw new Error("Не подтверждены два независимых источника. Публикация остановлена.");
+    if (!duplicateGuardPassed) {
+      throw new Error("Не удалось подобрать новую, не повторяющую предыдущие публикации новость за 4 попытки. " + lastGenerationError);
     }
     const published = await publishThreads(env, token, text);
     const at = new Date().toISOString();
