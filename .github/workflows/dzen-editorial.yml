@@ -1,0 +1,83 @@
+name: Dzen Editorial Engine
+
+on:
+  push:
+    branches:
+      - feature/dzen-editorial-engine
+  schedule:
+    # Europe/Moscow (UTC+3): 09:00, 12:00, 15:00, 18:00, 21:00
+    - cron: "0 6 * * *"
+    - cron: "0 9 * * *"
+    - cron: "0 12 * * *"
+    - cron: "0 15 * * *"
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+    inputs:
+      category:
+        description: "Рубрика для ручного запуска"
+        required: false
+        type: choice
+        default: compliance
+        options:
+          - compliance
+          - antifraud
+          - osint
+          - russia_news
+          - world_news
+      dry_run:
+        description: "Тестовый запуск без записи статьи и RSS"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dzen-editorial
+  cancel-in-progress: false
+
+jobs:
+  generate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate configuration and script
+        run: |
+          python -m json.tool dzen/config.json > /dev/null
+          python -m py_compile scripts/dzen_editorial.py
+          echo "Dzen editorial configuration and Python syntax are valid"
+
+      - name: Generate article and full-text RSS
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          GEMINI_MODEL: gemini-2.5-flash
+          PAGES_BASE_URL: https://sitnervs.github.io/osint-auto-publisher
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          ARTICLE_CATEGORY: ${{ inputs.category }}
+          DRY_RUN: ${{ github.event_name != 'schedule' && (inputs.dry_run != false) }}
+        run: python scripts/dzen_editorial.py
+
+      - name: Commit generated article and RSS
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run) }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/articles docs/rss.xml
+          if git diff --cached --quiet; then
+            echo "No new article to commit"
+          else
+            git commit -m "Publish scheduled Dzen editorial article"
+            git push
+          fi
