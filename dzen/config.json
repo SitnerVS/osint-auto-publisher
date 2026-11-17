@@ -1,0 +1,48 @@
+{
+  "timezone": "Europe/Moscow",
+  "schedule": [
+    {
+      "utc": "06:00",
+      "local": "09:00",
+      "category": "compliance",
+      "label": "Комплаенс"
+    },
+    {
+      "utc": "09:00",
+      "local": "12:00",
+      "category": "antifraud",
+      "label": "Антифрод"
+    },
+    {
+      "utc": "12:00",
+      "local": "15:00",
+      "category": "osint",
+      "label": "OSINT"
+    },
+    {
+      "utc": "15:00",
+      "local": "18:00",
+      "category": "russia_news",
+      "label": "Новости России"
+    },
+    {
+      "utc": "18:00",
+      "local": "21:00",
+      "category": "world_news",
+      "label": "Мировые новости"
+    }
+  ],
+  "article": {
+    "min_chars": 4500,
+    "max_chars": 11000,
+    "min_sources": 3,
+    "max_sources": 8,
+    "language": "ru",
+    "hashtags": false
+  },
+  "feed": {
+    "title": "OSINTNER — комплаенс, антифрод, OSINT и новости",
+    "description": "Авторские аналитические статьи о комплаенсе, антифроде, OSINT и актуальных событиях России и мира.",
+    "language": "ru"
+  }
+}
