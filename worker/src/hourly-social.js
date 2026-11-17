@@ -705,10 +705,10 @@ function normalizeHourlyStoryText(value) {
   return String(value || "")
     .toLowerCase()
     .replace(/ё/gu, "е")
-    .replace(/https?:\\/\\/\\S+/gu, " ")
-    .replace(/[^\\p{L}\\p{N}]+/gu, " ")
+    .replace(/https?:\/\/\S+/gu, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
-    .replace(/\\s+/gu, " ");
+    .replace(/\s+/gu, " ");
 }
 
 function hourlyStorySimilarity(left, right) {
@@ -725,7 +725,7 @@ function isDuplicateHourlyStory(text, selectedSources, history) {
   const selectedUrls = new Set((selectedSources || []).map(source => {
     try {
       const url = new URL(source.url);
-      return (url.hostname + url.pathname).toLowerCase().replace(/\\/$/u, "");
+      return (url.hostname + url.pathname).toLowerCase().replace(/\/$/u, "");
     } catch (_) { return String(source.url || "").toLowerCase(); }
   }).filter(Boolean));
   for (const previous of (Array.isArray(history) ? history : []).slice(-100)) {
@@ -733,7 +733,7 @@ function isDuplicateHourlyStory(text, selectedSources, history) {
     const previousUrls = new Set((previous.source_urls || []).map(value => {
       try {
         const url = new URL(value);
-        return (url.hostname + url.pathname).toLowerCase().replace(/\\/$/u, "");
+        return (url.hostname + url.pathname).toLowerCase().replace(/\/$/u, "");
       } catch (_) { return String(value || "").toLowerCase(); }
     }).filter(Boolean));
     let shared = 0;
@@ -914,11 +914,11 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         const candidateText = normalizeText(parsed.text || parsed.post || "");
         const candidateIds = Array.isArray(parsed.source_ids) ? parsed.source_ids.map(Number) : [];
         const candidateSources = candidateIds.map(id => sources.find(source => source.id === id)).filter(Boolean);
-        const sentenceCount = (candidateText.match(/[.!?]+(?=\\s|$)/gu) || []).length;
+        const sentenceCount = (candidateText.match(/[.!?]+(?=\s|$)/gu) || []).length;
         if (!candidateText || candidateText.length < 140 || candidateText.length > 470 || sentenceCount < 2 || sentenceCount > 3) {
           throw new Error("Пост не прошёл редакционную проверку: требуется 2–3 предложения и 140–470 символов.");
         }
-        if (!/[А-Яа-яЁё]/u.test(candidateText) || /[#@]|https?:\\/\\//iu.test(candidateText) || /\\?/u.test(candidateText)) {
+        if (!/[А-Яа-яЁё]/u.test(candidateText) || /[#@]|https?:\/\//iu.test(candidateText) || /\?/u.test(candidateText)) {
           throw new Error("Пост не прошёл языковой и форматный фильтр.");
         }
         if (candidateIds.length !== 2 || candidateSources.length !== 2 || new Set(candidateSources.map(source => source.domain)).size !== 2) {
