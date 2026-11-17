@@ -887,7 +887,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
 
     // Generate and validate several candidates. A repeated story is rejected locally,
     // regardless of whether the model follows the anti-repetition instruction.
-    for (let attempt = 1; attempt <= 4; attempt++) {
+    for (let attempt = 1; attempt <= 6; attempt++) {
       const prompt = [
         "Ты — выпускающий редактор профессионального русскоязычного медиа об OSINT, комплаенсе и антифроде.",
         "ТЕКУЩЕЕ НАПРАВЛЕНИЕ: " + track.name + ". Тематический фокус: " + track.focus + ".",
@@ -897,8 +897,9 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         "Стиль профессиональный, аналитический и естественный. Без хештегов, ссылок, упоминаний, эмодзи и вопросов.",
         "КРИТИЧЕСКИ ВАЖНО: не используй ни одно событие из истории и списка отклонённых кандидатов. Если тема уже встречалась, выбери ДРУГОЕ событие из каталога, а не переписывай старую новость другими словами.",
         "Последние опубликованные новости: " + JSON.stringify(recentHistory.slice(-30).map(item => ({ text: item.text, source_urls: item.source_urls || [] }))),
-        "Отклонённые в этой сессии кандидаты: " + JSON.stringify(rejectedCandidates),
-        "Попытка " + attempt + " из 4. Верни строго JSON вида " + JSON.stringify({ category: track.name, text: "Два или три предложения поста.", source_ids: [1,2] }) + ". source_ids — ровно два разных числовых ID.",
+        "Отклонённые в этой сессии кандидаты и причины: " + JSON.stringify(rejectedCandidates),
+        "Предыдущая ошибка проверки: " + (lastGenerationError || "это первая попытка") + ". Исправь именно эту проблему, не повторяй отклонённый текст.",
+        "Попытка " + attempt + " из 6. Верни строго JSON вида " + JSON.stringify({ category: track.name, text: "Два или три предложения поста.", source_ids: [1,2] }) + ". source_ids — ровно два разных числовых ID.",
         "КАТАЛОГ ИСТОЧНИКОВ:\n" + sourceCatalogue
       ].join("\n\n");
       try {
@@ -916,7 +917,9 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         const candidateSources = candidateIds.map(id => sources.find(source => source.id === id)).filter(Boolean);
         const sentenceCount = (candidateText.match(/[.!?]+(?=\s|$)/gu) || []).length;
         if (!candidateText || candidateText.length < 140 || candidateText.length > 470 || sentenceCount < 2 || sentenceCount > 3) {
-          throw new Error("Пост не прошёл редакционную проверку: требуется 2–3 предложения и 140–470 символов.");
+          const reason = "требуется 2–3 предложения и 140–470 символов; получено " + candidateText.length + " символов и " + sentenceCount + " предложений";
+          rejectedCandidates.push({ text: candidateText.slice(0, 500), source_ids: candidateIds, reason });
+          throw new Error("Пост не прошёл редакционную проверку: " + reason + ".");
         }
         if (!/[А-Яа-яЁё]/u.test(candidateText) || /[#@]|https?:\/\//iu.test(candidateText) || /\?/u.test(candidateText)) {
           throw new Error("Пост не прошёл языковой и форматный фильтр.");
@@ -937,7 +940,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         break;
       } catch (error) {
         lastGenerationError = String(error.message || error);
-        if (attempt === 4) throw error;
+        if (attempt === 6) throw error;
       }
     }
     if (!duplicateGuardPassed) {
