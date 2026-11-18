@@ -733,6 +733,23 @@ function hourlyRecordTime(record) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function hourlySourcePublishedTime(item) {
+  const candidates = [item?.published_date, item?.published_at, item?.publishedAt, item?.publication_date, item?.date_published, item?.date];
+  for (const value of candidates) {
+    if (!value) continue;
+    const parsed = Date.parse(String(value));
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return 0;
+}
+
+function isFreshHourlySource(item, now = Date.now()) {
+  const publishedAt = hourlySourcePublishedTime(item);
+  if (!publishedAt) return false;
+  const age = now - publishedAt;
+  return age >= -60 * 60 * 1000 && age <= 24 * 60 * 60 * 1000;
+}
+
 function isDuplicateHourlyStory(text, selectedSources, history, now = Date.now()) {
   const normalized = normalizeHourlyStoryText(text);
   const selectedUrls = new Set((selectedSources || []).map(source => {
@@ -892,6 +909,10 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         }
         const byUrl = new Map();
         for (const item of gathered) {
+          // Require a verifiable original publication date; stale/undated evergreen
+          // pages are excluded before they reach the generation model.
+          const publishedAt = hourlySourcePublishedTime(item);
+          if (!publishedAt || !isFreshHourlySource(item)) continue;
           const url = String(item.url || "").trim();
           if (!/^https?:\/\//iu.test(url)) continue;
           let host = "";
@@ -900,7 +921,11 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           const domain = rootDomain(host);
           if (!domain) continue;
           const canonical = (host + new URL(url).pathname).toLowerCase().replace(/\/$/u, "");
-          if (!byUrl.has(canonical)) byUrl.set(canonical, { host, domain, url, title: String(item.title || ""), content: String(item.content || "").slice(0, 1200) });
+          if (!byUrl.has(canonical)) byUrl.set(canonical, {
+            host, domain, url, title: String(item.title || ""),
+            published_at: new Date(publishedAt).toISOString(),
+            content: String(item.content || "").slice(0, 1200)
+          });
         }
         const domainUsage = new Map();
         const urlUsage = new Map();
@@ -952,7 +977,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const prompt = [
         "Ты — выпускающий редактор профессионального русскоязычного медиа об OSINT, комплаенсе и антифроде.",
         "ТЕКУЩЕЕ НАПРАВЛЕНИЕ: " + track.name + ". География выпуска: " + geoScope + ". Тематический фокус: " + track.focus + ".",
-        "Выбери ОДНО свежее событие или исследование из каталога источников и подготовь ОДИН готовый пост для Threads. География должна строго соответствовать выпуску: " + geoScope + ". Для выпуска Россия — событие именно в России, о российском регулировании или российской организации; для выпуска Мир — международное или зарубежное событие, не российская новость.",
+        "Выбери ОДНО событие, опубликованное не более 24 часов назад, из каталога источников. Используй только дату первоначальной публикации, а не дату обновления страницы. География должна строго соответствовать выпуску: " + geoScope + ". Для выпуска Россия — событие именно в России, о российском регулировании или российской организации; для выпуска Мир — международное или зарубежное событие, не российская новость.",
         "Пост: 2–3 полных связанных предложения, 180–470 символов. Первое сообщает, что произошло; второе раскрывает подтверждённую деталь и практическое значение; третье допустимо для контекста.",
         "Используй только факты, прямо подтверждаемые минимум двумя независимыми источниками. Не выдумывай факты, даты, цифры и причинно-следственные связи.",
         "Стиль профессиональный, аналитический и естественный. Без хештегов, ссылок, упоминаний, эмодзи и вопросов.",
