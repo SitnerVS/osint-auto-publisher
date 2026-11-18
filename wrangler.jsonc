@@ -28,5 +28,10 @@
     "crons": [
       "*/5 * * * *"
     ]
+  },
+  "secrets": {
+    "required": [
+      "DZEN_NOTIFY_SECRET"
+    ]
   }
 }
