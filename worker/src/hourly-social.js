@@ -837,7 +837,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
   await storage.put(slotKey, { status: "started", started_at_ms: Date.now(), track: track.name, created_at: new Date().toISOString() });
 
   try {
-    if (typeof deps.tavilySearch !== "function") throw new Error("Tavily не подключён: отсутствует TAVILY_API_KEY.");
+    const searchAvailable = typeof deps.tavilySearch === "function";
     const trustedDomains = [
       "cisa.gov","fbi.gov","ic3.gov","nist.gov","ftc.gov","sec.gov","justice.gov","treasury.gov",
       "fincen.gov","ofac.treasury.gov","federalreserve.gov","occ.treas.gov","fdic.gov","finra.org","cftc.gov",
@@ -873,10 +873,11 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       : "international world global news outside Russia мировые международные новости зарубежные регуляторы ";
     let sources = [];
     let searchFailure = "";
+    let originalOnly = !searchAvailable;
     // Never stop at a weak first topic: rotate through all three editorial tracks,
     // using several differently worded searches per track until two publishers
     // independently cover a candidate news item.
-    for (const candidate of candidateTracks) {
+    for (const candidate of (searchAvailable ? candidateTracks : [])) {
       track = candidate;
       await storage.put(slotKey, { status: "started", started_at_ms: Date.now(), track: track.name, created_at: new Date().toISOString() });
       const queries = [
@@ -961,7 +962,8 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       console.warn("Hourly topic has insufficient trusted independent sources; switching track:", track.name);
     }
     if (sources.length < 1) {
-      throw new Error("После повторного поиска по OSINT, Комплаенсу и Антифроду не удалось найти ни одного свежего авторитетного источника. " + (searchFailure ? "Последняя ошибка поиска: " + searchFailure : "Следующий запуск повторит поиск."));
+      originalOnly = true;
+      console.warn("No fresh trusted source found; switching to original evergreen editorial content.", { track: track.name, searchFailure });
     }
     const sourceCatalogue = sources.map(s => "[" + s.id + "] " + s.host + " | опубликовано: " + s.published_at + " | " + s.title + " | " + s.url + "\n" + s.content).join("\n\n");
     const rejectedCandidates = [];
@@ -977,16 +979,20 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const prompt = [
         "Ты — выпускающий редактор профессионального русскоязычного медиа об OSINT, комплаенсе и антифроде.",
         "ТЕКУЩЕЕ НАПРАВЛЕНИЕ: " + track.name + ". География выпуска: " + geoScope + ". Тематический фокус: " + track.focus + ".",
-        "Выбери ОДНО событие, опубликованное не более 24 часов назад, из каталога источников. Используй только дату первоначальной публикации, а не дату обновления страницы. География должна строго соответствовать выпуску: " + geoScope + ". Для выпуска Россия — событие именно в России, о российском регулировании или российской организации; для выпуска Мир — международное или зарубежное событие, не российская новость.",
+        originalOnly
+          ? "Создай оригинальный аналитический пост без привязки к текущей новости и без внешних источников. Тема — практический антифрод/OSINT/комплаенс-разбор по направлению выпуска. Используй общеизвестные профессиональные принципы, типовые сценарии и рекомендации; не выдумывай конкретные происшествия, цифры, исследования, цитаты, организации или недавние изменения. Не изображай материал как новость. Дай самостоятельное наблюдение и практический вывод."
+          : "Выбери ОДНО событие, опубликованное не более 24 часов назад, из каталога источников. Используй только дату первоначальной публикации, а не дату обновления страницы. География должна строго соответствовать выпуску: " + geoScope + ". Для выпуска Россия — событие именно в России, о российском регулировании или российской организации; для выпуска Мир — международное или зарубежное событие, не российская новость.",
         "Пост: 2–3 полных связанных предложения, 180–470 символов. Первое сообщает, что произошло; второе раскрывает подтверждённую деталь и практическое значение; третье допустимо для контекста.",
-        "Используй только факты, прямо подтверждаемые выбранным источником или источниками из каталога. Достаточно одного авторитетного источника; если есть второй независимый источник, можешь использовать и его. Не выдумывай факты, даты, цифры и причинно-следственные связи.",
+        originalOnly
+          ? "Поскольку это авторский аналитический материал, source_ids должен быть пустым массивом. Не добавляй неподтверждённые текущие факты."
+          : "Используй только факты, прямо подтверждаемые выбранным источником или источниками из каталога. Достаточно одного авторитетного источника; если есть второй независимый источник, можешь использовать и его. Не выдумывай факты, даты, цифры и причинно-следственные связи.",
         "Стиль профессиональный, аналитический и естественный. Без хештегов, ссылок, упоминаний, эмодзи и вопросов.",
         "КРИТИЧЕСКИ ВАЖНО: не используй ни одно событие из истории и списка отклонённых кандидатов. Если тема уже встречалась, выбери ДРУГОЕ событие из каталога, а не переписывай старую новость другими словами.",
         "Последние опубликованные новости за день: " + JSON.stringify(recentHistory.slice(-36).map(item => ({ text: item.text, geo_scope: item.geo_scope || "", source_urls: item.source_urls || [] }))),
         "Не повторяй событие, даже если оно пересказано другими словами. Используй источники из разных редакций; предпочитай домены, которые реже встречались в недавних публикациях.",
         "Отклонённые в этой сессии кандидаты и причины: " + JSON.stringify(rejectedCandidates),
         "Предыдущая ошибка проверки: " + (lastGenerationError || "это первая попытка") + ". Исправь именно эту проблему, не повторяй отклонённый текст.",
-        "Попытка " + attempt + " из 6. Верни строго JSON вида " + JSON.stringify({ category: track.name, text: "Два или три предложения поста.", source_ids: [1] }) + ". source_ids — один или два числовых ID реально использованных источников; минимум один.",
+        "Попытка " + attempt + " из 6. Верни строго JSON вида " + JSON.stringify({ category: track.name, text: "Два или три предложения поста.", source_ids: originalOnly ? [] : [1] }) + ". source_ids — " + (originalOnly ? "пустой массив для авторского материала." : "один или два числовых ID реально использованных источников; минимум один."),
         "КАТАЛОГ ИСТОЧНИКОВ:\n" + sourceCatalogue
       ].join("\n\n");
       try {
@@ -1011,7 +1017,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         if (!/[А-Яа-яЁё]/u.test(candidateText) || /[#@]|https?:\/\//iu.test(candidateText) || /\?/u.test(candidateText)) {
           throw new Error("Пост не прошёл языковой и форматный фильтр.");
         }
-        if (candidateIds.length < 1 || candidateIds.length > 2 || candidateSources.length !== candidateIds.length || new Set(candidateSources.map(source => source.domain)).size !== candidateSources.length) {
+        if ((!originalOnly && candidateIds.length < 1) || candidateIds.length > 2 || candidateSources.length !== candidateIds.length || new Set(candidateSources.map(source => source.domain)).size !== candidateSources.length) {
           throw new Error("Не указан хотя бы один корректный источник или указаны повторяющиеся источники.");
         }
         if (isDuplicateHourlyStory(candidateText, candidateSources, recentHistory)) {
@@ -1030,8 +1036,57 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         if (attempt === 6) throw error;
       }
     }
+    if (!duplicateGuardPassed && originalOnly) {
+      const originalPrompt = "Создай оригинальный русскоязычный аналитический пост для Threads по направлению " + track.name + ". Тематический фокус: " + track.focus + ". Это не новость и не пересказ чужого материала. Используй только общие профессиональные знания, не придумывай реальные случаи, цифры, исследования, названия компаний или текущие события. 2–3 предложения, 140–470 символов, профессиональный стиль, конкретное наблюдение и практический вывод. Без ссылок, хештегов, упоминаний, эмодзи и вопросов. Не повторяй последние публикации: " + JSON.stringify(recentHistory.slice(-36).map(item => item.text)) + ". Верни строго JSON: {\\"text\\":\\"...\\",\\"source_ids\\":[]}.";
+      try {
+        const generated = await deps.geminiGenerate(env, originalPrompt, { task: "hourly_original_editorial_fallback", model: "gemini-3.5-flash-lite", fallbackModels: ["gemini-3.1-flash-lite"], maxAttempts: 1, temperature: 0.65, maxOutputTokens: 700 });
+        const parsed = parseJsonObject(generated);
+        const candidateText = normalizeText(parsed.text || parsed.post || "");
+        const count = (candidateText.match(/[.!?]+(?=\\s|$)/gu) || []).length;
+        if (candidateText.length >= 140 && candidateText.length <= 470 && count >= 2 && count <= 3 && !localSafetyFailure(candidateText) && !isDuplicateHourlyStory(candidateText, [], recentHistory)) {
+          text = candidateText;
+          selectedSources = [];
+          sourceIds = [];
+          duplicateGuardPassed = true;
+        }
+      } catch (fallbackError) {
+        console.error("Original editorial fallback generation failed:", fallbackError.message);
+      }
+      if (!duplicateGuardPassed) {
+        const fallbackPosts = {
+          "OSINT": [
+            "В OSINT ценность имеет не количество найденных ссылок, а возможность проверить каждую из них. Надёжная рабочая цепочка начинается с первоисточника, фиксирует дату и контекст, а затем независимо подтверждает ключевые детали.",
+            "Цифровой след становится доказательным материалом только после проверки происхождения и целостности данных. Скриншот без адреса страницы, времени получения и сохранённого контекста — скорее зацепка для расследования, чем надёжное подтверждение.",
+            "Открытые данные полезны не сами по себе, а в связях между ними. Совпадение имени ещё не доказывает, что найден один человек: сопоставляйте несколько независимых признаков и отдельно фиксируйте альтернативные объяснения."
+          ],
+          "Комплаенс": [
+            "Проверка контрагента не должна заканчиваться в момент подписания договора. Изменение руководителя, структуры владения, адреса или характера операций может существенно поменять профиль риска, поэтому контроль важно выстраивать на всём жизненном цикле отношений.",
+            "Качественный KYC — это не сбор максимального количества документов, а понимание того, кто стоит за бизнесом и как он работает. Документы, полномочия представителя, структура владения и фактическая модель операций должны складываться в непротиворечивую картину.",
+            "Красный флаг в комплаенсе — повод разобраться, а не автоматический приговор контрагенту. Эффективная проверка фиксирует конкретное несоответствие, оценивает его существенность и запрашивает объяснение до принятия обоснованного решения."
+          ],
+          "Антифрод": [
+            "Мошенническая схема часто начинается не с технического взлома, а с небольшого отклонения от привычного поведения. Поэтому антифрод должен оценивать контекст операции: устройство, время, последовательность действий, нового получателя и резкую смену сценария.",
+            "Один подозрительный признак редко позволяет уверенно определить мошенничество. Гораздо надёжнее сочетать несколько независимых сигналов, учитывать обычное поведение клиента и проверять, не объясняется ли отклонение легитимной причиной.",
+            "Социальная инженерия эксплуатирует не только доверие, но и спешку. Требование срочно подтвердить перевод, скрыть разговор или действовать в обход процедуры должно запускать паузу и независимую проверку по заранее известному каналу связи."
+          ]
+        };
+        const pool = fallbackPosts[track.name] || fallbackPosts["Антифрод"];
+        const startIndex = Math.abs(Math.floor(scheduledAt / 3600000)) % pool.length;
+        for (let offset = 0; offset < pool.length; offset++) {
+          const candidateText = pool[(startIndex + offset) % pool.length];
+          if (!isDuplicateHourlyStory(candidateText, [], recentHistory)) {
+            text = candidateText;
+            selectedSources = [];
+            sourceIds = [];
+            duplicateGuardPassed = true;
+            originalOnly = true;
+            break;
+          }
+        }
+      }
+    }
     if (!duplicateGuardPassed) {
-      throw new Error("Не удалось подобрать новую, не повторяющую публикации за текущие сутки, новость за 6 попыток. " + lastGenerationError);
+      throw new Error("Не удалось подготовить неповторяющийся пост даже в резервном редакционном режиме. " + lastGenerationError);
     }
     const published = await publishThreads(env, token, text);
     const at = new Date().toISOString();
