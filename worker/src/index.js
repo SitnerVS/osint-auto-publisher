@@ -90,6 +90,25 @@ function isSimilarEditorialTopic(candidate, previousTopics) {
   return (previousTopics || []).some(previous => editorialTopicSimilarity(candidate, previous) >= 0.58);
 }
 
+async function isSemanticDuplicateEditorialTopic(env, candidate, previousTopics) {
+  const comparisonSet = [...new Set((previousTopics || []).map(value => String(value || "").trim()).filter(Boolean))].slice(0, 80);
+  if (!comparisonSet.length) return false;
+  const verdict = await geminiGenerate(
+    env,
+    "Ты — независимый редактор-дедупликатор. Сравни новую тему со списком уже предложенных тем. " +
+      "Определи совпадение СМЫСЛА, а не слов. Считай темой-дубликатом, если совпадает центральная проблема, объект исследования, схема, метод или практический вопрос, даже если заголовки сформулированы иначе. " +
+      "Считай новой только тему с другим самостоятельным предметом и другим редакционным вопросом. " +
+      "Если сомневаешься — DUPLICATE. Верни ровно одно слово: DUPLICATE или NEW.\\n\\n" +
+      "НОВАЯ ТЕМА: " + candidate + "\\n\\nУЖЕ ПРЕДЛОЖЕННЫЕ ТЕМЫ:\\n" +
+      comparisonSet.map((topic, index) => (index + 1) + ". " + topic).join("\\n"),
+    { task: "editorial_semantic_deduplication", temperature: 0, maxOutputTokens: 20, maxAttempts: 2, fallbackModels: ["gemini-3.1-flash-lite"] }
+  );
+  const normalized = String(verdict || "").trim().toUpperCase();
+  if (normalized.includes("DUPLICATE")) return true;
+  if (normalized.includes("NEW")) return false;
+  throw new Error("Семантическая проверка темы вернула некорректный ответ; тема не будет передана на согласование.");
+}
+
 function getApprovalContent(item) {
   if (item.stage === "topic") return item.content || "";
   if (item.stage === "text" || item.stage === "final") {
@@ -2099,8 +2118,9 @@ export class ApprovalCoordinator {
       );
       const candidate = generatedTopic.replace(/^[\"«]|[\"»]$/g, "").trim();
       if (!candidate) { lastTopicError = "Gemini generated an empty topic"; continue; }
-      if (isSimilarEditorialTopic(candidate, recentTopics)) {
-        lastTopicError = "Тема повторяет или слишком близка к ранее предложенной: " + candidate;
+      if (isSimilarEditorialTopic(candidate, recentTopics) ||
+          await isSemanticDuplicateEditorialTopic(this.env, candidate, recentTopics)) {
+        lastTopicError = "Тема повторяет или слишком близка по смыслу к ранее предложенной: " + candidate;
         console.warn("Scheduled editorial topic rejected as duplicate:", { category, attempt, candidate });
         continue;
       }
@@ -2202,7 +2222,7 @@ export class ApprovalCoordinator {
 
     try {
       const recentTopics = await getRecentEditorialTopics(this.ctx.storage, itemId);
-      const blockedTopics = [...new Set([...recentTopics, ...rejectedTopics])];
+      const blockedTopics = [...new Set([item.title, ...recentTopics, ...rejectedTopics].filter(Boolean))];
       let title = "";
       let lastTopicError = "";
       for (let attempt = 1; attempt <= 5; attempt++) {
@@ -2214,9 +2234,10 @@ export class ApprovalCoordinator {
         );
         const candidate = generatedTopic.replace(/^[\"«]|[\"»]$/g, "").trim();
         if (!candidate) { lastTopicError = "Gemini generated an empty alternative topic"; continue; }
-        if (isSimilarEditorialTopic(candidate, blockedTopics)) {
-          lastTopicError = "Повтор темы: " + candidate;
-          console.warn("Alternative editorial topic rejected as duplicate:", { itemId, attempt, candidate });
+        if (isSimilarEditorialTopic(candidate, blockedTopics) ||
+            await isSemanticDuplicateEditorialTopic(this.env, candidate, blockedTopics)) {
+          lastTopicError = "Повтор темы по смыслу: " + candidate;
+          console.warn("Alternative editorial topic rejected as semantic duplicate:", { itemId, attempt, candidate });
           continue;
         }
         title = candidate;
