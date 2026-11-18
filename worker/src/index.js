@@ -890,8 +890,15 @@ export default {
 
     const requestUrl = new URL(request.url);
     if (request.method === "POST" && requestUrl.pathname === "/internal/dzen-notify") {
-      const suppliedSecret = request.headers.get("X-Dzen-Notify-Secret");
-      if (!env.DZEN_NOTIFY_SECRET || !suppliedSecret || suppliedSecret !== env.DZEN_NOTIFY_SECRET) {
+      const suppliedSecret = String(request.headers.get("X-Dzen-Notify-Secret") || "").trim();
+      const configuredSecret = String(env.DZEN_NOTIFY_SECRET || "").trim();
+      if (!configuredSecret || !suppliedSecret || suppliedSecret !== configuredSecret) {
+        console.warn("Dzen notification authentication rejected:", {
+          configured: Boolean(configuredSecret),
+          supplied: Boolean(suppliedSecret),
+          configured_length: configuredSecret.length,
+          supplied_length: suppliedSecret.length
+        });
         return new Response("Unauthorized", { status: 401 });
       }
       if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
