@@ -963,7 +963,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     if (sources.length < 2) {
       throw new Error("После повторного поиска по OSINT, Комплаенсу и Антифроду не удалось найти два независимых авторитетных источника. " + (searchFailure ? "Последняя ошибка поиска: " + searchFailure : "Следующий запуск повторит поиск."));
     }
-    const sourceCatalogue = sources.map(s => "[" + s.id + "] " + s.host + " | " + s.title + " | " + s.url + "\n" + s.content).join("\n\n");
+    const sourceCatalogue = sources.map(s => "[" + s.id + "] " + s.host + " | опубликовано: " + s.published_at + " | " + s.title + " | " + s.url + "\n" + s.content).join("\n\n");
     const rejectedCandidates = [];
     let text = "";
     let selectedSources = [];
