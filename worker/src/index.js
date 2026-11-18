@@ -61,6 +61,35 @@ function splitTelegramText(text, limit = TELEGRAM_SAFE_LIMIT) {
   return chunks;
 }
 
+function normalizeEditorialTopic(value) {
+  const stop = new Set(["для","при","как","что","это","или","через","между","после","перед","над","под","без","про","когда","который","которая","которые","новый","новая","новые","метод","способ","система","подход","анализ","проверка"]);
+  return String(value || "").toLowerCase().replace(/ё/gu, "е").replace(/[^а-яa-z0-9]+/giu, " ").trim().split(/\s+/u)
+    .map(word => word.replace(/(иями|ями|ами|ого|ему|ому|ыми|ими|иях|ах|ях|ов|ев|ей|ам|ям|ом|ем|ой|ый|ий|ая|яя|ое|ее|ы|и|а|я|у|ю|е)$/u, ""))
+    .filter(word => word.length >= 3 && !stop.has(word));
+}
+function editorialTopicSimilarity(left, right) {
+  const a = normalizeEditorialTopic(left), b = normalizeEditorialTopic(right);
+  if (!a.length || !b.length) return 0;
+  const A = new Set(a), B = new Set(b);
+  const common = [...A].filter(token => B.has(token)).length;
+  const containment = common / Math.min(A.size, B.size);
+  const jaccard = common / new Set([...A, ...B]).size;
+  const bigrams = tokens => new Set(tokens.slice(0, -1).map((token, i) => token + " " + tokens[i + 1]));
+  const ba = bigrams(a), bb = bigrams(b);
+  const sharedBigrams = [...ba].filter(value => bb.has(value)).length;
+  return Math.max(jaccard, containment * 0.82, sharedBigrams ? 0.72 : 0);
+}
+async function getRecentEditorialTopics(storage, excludeItemId = "", limit = 120) {
+  const entries = await storage.list({ prefix: "item:" });
+  const items = [...entries.values()].filter(item => item && item.id !== excludeItemId && item.title && item.stage)
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || ""))).slice(0, limit);
+  const saved = await storage.get("editorial:topic_history") || [];
+  return [...new Set([...items.map(item => String(item.title).trim()), ...saved.map(item => String(typeof item === "string" ? item : item.title || "").trim())].filter(Boolean))].slice(0, limit);
+}
+function isSimilarEditorialTopic(candidate, previousTopics) {
+  return (previousTopics || []).some(previous => editorialTopicSimilarity(candidate, previous) >= 0.58);
+}
+
 function getApprovalContent(item) {
   if (item.stage === "topic") return item.content || "";
   if (item.stage === "text" || item.stage === "final") {
@@ -2056,19 +2085,29 @@ export class ApprovalCoordinator {
       `Перед ответом проверь: тема раскрывает один сюжет, заголовок понятен, формулировка звучит естественно, нет лишних терминов и перечислений. Если хотя бы одно условие не выполнено — переформулируй.\n\n` +
       `Верни только один заголовок на русском языке, без кавычек, пояснений и нумерации.`;
 
-    const generatedTopic = await geminiGenerate(
-      this.env,
-      prompt,
-      { task: "topic" }
-    );
-
-    const title = generatedTopic
-      .replace(/^["«]|["»]$/g, "")
-      .trim();
-
-    if (!title) {
-      throw new Error("Gemini generated an empty topic");
+    const recentTopics = await getRecentEditorialTopics(this.ctx.storage);
+    const historyInstruction = "\\n\\nПОСЛЕДНИЕ ТЕМЫ РЕДАКЦИИ — НЕ ПОВТОРЯТЬ И НЕ ПЕРЕФРАЗИРОВАТЬ: " +
+      JSON.stringify(recentTopics.slice(0, 100)) +
+      "\\nНужен другой предмет, сценарий или контрольная задача, а не новый заголовок для прежнего сюжета.";
+    let title = "";
+    let lastTopicError = "";
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const generatedTopic = await geminiGenerate(
+        this.env,
+        prompt + historyInstruction + "\\nПопытка " + attempt + " из 5. Если тема похожа на список выше, придумай принципиально другой сюжет.",
+        { task: "topic" }
+      );
+      const candidate = generatedTopic.replace(/^[\"«]|[\"»]$/g, "").trim();
+      if (!candidate) { lastTopicError = "Gemini generated an empty topic"; continue; }
+      if (isSimilarEditorialTopic(candidate, recentTopics)) {
+        lastTopicError = "Тема повторяет или слишком близка к ранее предложенной: " + candidate;
+        console.warn("Scheduled editorial topic rejected as duplicate:", { category, attempt, candidate });
+        continue;
+      }
+      title = candidate;
+      break;
     }
+    if (!title) throw new Error("Не удалось подобрать новую тему после 5 попыток. " + lastTopicError);
 
     const timestamp = new Date().toISOString();
 
@@ -2095,6 +2134,9 @@ export class ApprovalCoordinator {
 
     await this.ctx.storage.transaction(async (txn) => {
       await txn.put(`item:${item.id}`, item);
+      await txn.put("editorial:topic_history",
+        [...(await txn.get("editorial:topic_history") || []), { title, category, created_at: timestamp }].slice(-200)
+      );
 
       await txn.put(
         rotationKey,
@@ -2159,19 +2201,28 @@ export class ApprovalCoordinator {
       `Верни только один короткий заголовок на русском языке, без кавычек, пояснений и нумерации.`;
 
     try {
-      const generatedTopic = await geminiGenerate(
-        this.env,
-        prompt,
-        { task: "topic" }
-      );
-
-      const title = generatedTopic
-        .replace(/^["«]|["»]$/g, "")
-        .trim();
-
-      if (!title) {
-        throw new Error("Gemini generated an empty alternative topic");
+      const recentTopics = await getRecentEditorialTopics(this.ctx.storage, itemId);
+      const blockedTopics = [...new Set([...recentTopics, ...rejectedTopics])];
+      let title = "";
+      let lastTopicError = "";
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        const generatedTopic = await geminiGenerate(
+          this.env,
+          prompt + "\\n\\nТЕМЫ, УЖЕ ИСПОЛЬЗОВАННЫЕ РЕДАКЦИЕЙ — НЕ ПОВТОРЯТЬ: " + JSON.stringify(blockedTopics.slice(0, 100)) +
+            "\\nПопытка " + attempt + " из 5. Выбери другой предмет и другой сценарий.",
+          { task: "topic" }
+        );
+        const candidate = generatedTopic.replace(/^[\"«]|[\"»]$/g, "").trim();
+        if (!candidate) { lastTopicError = "Gemini generated an empty alternative topic"; continue; }
+        if (isSimilarEditorialTopic(candidate, blockedTopics)) {
+          lastTopicError = "Повтор темы: " + candidate;
+          console.warn("Alternative editorial topic rejected as duplicate:", { itemId, attempt, candidate });
+          continue;
+        }
+        title = candidate;
+        break;
       }
+      if (!title) throw new Error("Не удалось подобрать новую тему после 5 попыток. " + lastTopicError);
 
       const timestamp = new Date().toISOString();
 
@@ -2191,6 +2242,9 @@ export class ApprovalCoordinator {
         current.alternative_topic_count =
           Number(current.alternative_topic_count || 0) + 1;
 
+        await txn.put("editorial:topic_history",
+          [...(await txn.get("editorial:topic_history") || []), { title, category: current.category, created_at: timestamp }].slice(-200)
+        );
         await txn.put(itemKey, current);
 
         await this.addEvent(txn, {
