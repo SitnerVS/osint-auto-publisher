@@ -955,13 +955,13 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           diversifiedSources.push({ ...source, id: diversifiedSources.length + 1 });
           if (diversifiedSources.length >= 30) break;
         }
-        if (diversifiedSources.length >= 2) sources = diversifiedSources;
+        if (diversifiedSources.length >= 1) sources = diversifiedSources;
       }
-      if (sources.length >= 2) break;
+      if (sources.length >= 1) break;
       console.warn("Hourly topic has insufficient trusted independent sources; switching track:", track.name);
     }
-    if (sources.length < 2) {
-      throw new Error("После повторного поиска по OSINT, Комплаенсу и Антифроду не удалось найти два независимых авторитетных источника. " + (searchFailure ? "Последняя ошибка поиска: " + searchFailure : "Следующий запуск повторит поиск."));
+    if (sources.length < 1) {
+      throw new Error("После повторного поиска по OSINT, Комплаенсу и Антифроду не удалось найти ни одного свежего авторитетного источника. " + (searchFailure ? "Последняя ошибка поиска: " + searchFailure : "Следующий запуск повторит поиск."));
     }
     const sourceCatalogue = sources.map(s => "[" + s.id + "] " + s.host + " | опубликовано: " + s.published_at + " | " + s.title + " | " + s.url + "\n" + s.content).join("\n\n");
     const rejectedCandidates = [];
@@ -979,14 +979,14 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         "ТЕКУЩЕЕ НАПРАВЛЕНИЕ: " + track.name + ". География выпуска: " + geoScope + ". Тематический фокус: " + track.focus + ".",
         "Выбери ОДНО событие, опубликованное не более 24 часов назад, из каталога источников. Используй только дату первоначальной публикации, а не дату обновления страницы. География должна строго соответствовать выпуску: " + geoScope + ". Для выпуска Россия — событие именно в России, о российском регулировании или российской организации; для выпуска Мир — международное или зарубежное событие, не российская новость.",
         "Пост: 2–3 полных связанных предложения, 180–470 символов. Первое сообщает, что произошло; второе раскрывает подтверждённую деталь и практическое значение; третье допустимо для контекста.",
-        "Используй только факты, прямо подтверждаемые минимум двумя независимыми источниками. Не выдумывай факты, даты, цифры и причинно-следственные связи.",
+        "Используй только факты, прямо подтверждаемые выбранным источником или источниками из каталога. Достаточно одного авторитетного источника; если есть второй независимый источник, можешь использовать и его. Не выдумывай факты, даты, цифры и причинно-следственные связи.",
         "Стиль профессиональный, аналитический и естественный. Без хештегов, ссылок, упоминаний, эмодзи и вопросов.",
         "КРИТИЧЕСКИ ВАЖНО: не используй ни одно событие из истории и списка отклонённых кандидатов. Если тема уже встречалась, выбери ДРУГОЕ событие из каталога, а не переписывай старую новость другими словами.",
         "Последние опубликованные новости за день: " + JSON.stringify(recentHistory.slice(-36).map(item => ({ text: item.text, geo_scope: item.geo_scope || "", source_urls: item.source_urls || [] }))),
         "Не повторяй событие, даже если оно пересказано другими словами. Используй источники из разных редакций; предпочитай домены, которые реже встречались в недавних публикациях.",
         "Отклонённые в этой сессии кандидаты и причины: " + JSON.stringify(rejectedCandidates),
         "Предыдущая ошибка проверки: " + (lastGenerationError || "это первая попытка") + ". Исправь именно эту проблему, не повторяй отклонённый текст.",
-        "Попытка " + attempt + " из 6. Верни строго JSON вида " + JSON.stringify({ category: track.name, text: "Два или три предложения поста.", source_ids: [1,2] }) + ". source_ids — ровно два разных числовых ID.",
+        "Попытка " + attempt + " из 6. Верни строго JSON вида " + JSON.stringify({ category: track.name, text: "Два или три предложения поста.", source_ids: [1] }) + ". source_ids — один или два числовых ID реально использованных источников; минимум один.",
         "КАТАЛОГ ИСТОЧНИКОВ:\n" + sourceCatalogue
       ].join("\n\n");
       try {
@@ -1011,8 +1011,8 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         if (!/[А-Яа-яЁё]/u.test(candidateText) || /[#@]|https?:\/\//iu.test(candidateText) || /\?/u.test(candidateText)) {
           throw new Error("Пост не прошёл языковой и форматный фильтр.");
         }
-        if (candidateIds.length !== 2 || candidateSources.length !== 2 || new Set(candidateSources.map(source => source.domain)).size !== 2) {
-          throw new Error("Не подтверждены два независимых источника.");
+        if (candidateIds.length < 1 || candidateIds.length > 2 || candidateSources.length !== candidateIds.length || new Set(candidateSources.map(source => source.domain)).size !== candidateSources.length) {
+          throw new Error("Не указан хотя бы один корректный источник или указаны повторяющиеся источники.");
         }
         if (isDuplicateHourlyStory(candidateText, candidateSources, recentHistory)) {
           rejectedCandidates.push({ text: candidateText, source_urls: candidateSources.map(source => source.url), reason: "duplicate_of_previous_publication" });
