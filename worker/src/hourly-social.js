@@ -720,25 +720,45 @@ function hourlyStorySimilarity(left, right) {
   return intersection / (a.size + b.size - intersection);
 }
 
-function isDuplicateHourlyStory(text, selectedSources, history) {
+function hourlyMoscowDate(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const fields = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return fields.year + "-" + fields.month + "-" + fields.day;
+}
+
+function hourlyRecordTime(record) {
+  const parsed = Date.parse(record?.published_at || record?.created_at || record?.slot || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isDuplicateHourlyStory(text, selectedSources, history, now = Date.now()) {
   const normalized = normalizeHourlyStoryText(text);
   const selectedUrls = new Set((selectedSources || []).map(source => {
-    try {
-      const url = new URL(source.url);
-      return (url.hostname + url.pathname).toLowerCase().replace(/\/$/u, "");
-    } catch (_) { return String(source.url || "").toLowerCase(); }
+    try { const url = new URL(source.url); return (url.hostname + url.pathname).toLowerCase().replace(/\/$/u, ""); }
+    catch (_) { return String(source.url || "").toLowerCase(); }
   }).filter(Boolean));
-  for (const previous of (Array.isArray(history) ? history : []).slice(-100)) {
-    if (hourlyStorySimilarity(text, previous.text) >= 0.34) return true;
+  const today = hourlyMoscowDate(now);
+  const stopWords = new Set(["это","что","как","для","при","или","его","ее","они","она","оно","так","уже","также","после","перед","этот","эта","эти","был","была","были","будет","могут","может","новый","новая","новые","компания","компании","данные","системы","система","россии","россия","страны","рынка","рынок","сообщили","заявили","сообщает","согласно","который","которая","которые","через","более","менее","один","одна","две","трех","трёх"]);
+  const meaningful = value => normalizeHourlyStoryText(value).split(" ").filter(token => token.length >= 4 && !stopWords.has(token));
+  const currentTokens = new Set(meaningful(text));
+  for (const previous of (Array.isArray(history) ? history : []).slice(-300)) {
+    if (!previous?.text) continue;
+    const previousTime = hourlyRecordTime(previous);
+    const sameDay = previousTime ? hourlyMoscowDate(previousTime) === today : false;
+    const within24Hours = previousTime ? now - previousTime <= 24 * 60 * 60 * 1000 && now >= previousTime : false;
+    if (!sameDay && !within24Hours) continue;
+    const previousTokens = new Set(meaningful(previous.text));
+    let sharedTokens = 0;
+    for (const token of currentTokens) if (previousTokens.has(token)) sharedTokens++;
+    const containment = Math.min(currentTokens.size, previousTokens.size) ? sharedTokens / Math.min(currentTokens.size, previousTokens.size) : 0;
+    if (hourlyStorySimilarity(text, previous.text) >= 0.25 || (sharedTokens >= 3 && containment >= 0.45)) return true;
     const previousUrls = new Set((previous.source_urls || []).map(value => {
-      try {
-        const url = new URL(value);
-        return (url.hostname + url.pathname).toLowerCase().replace(/\/$/u, "");
-      } catch (_) { return String(value || "").toLowerCase(); }
+      try { const url = new URL(value); return (url.hostname + url.pathname).toLowerCase().replace(/\/$/u, ""); }
+      catch (_) { return String(value || "").toLowerCase(); }
     }).filter(Boolean));
-    let shared = 0;
-    for (const url of selectedUrls) if (previousUrls.has(url)) shared++;
-    if (shared >= 2) return true;
+    for (const url of selectedUrls) if (previousUrls.has(url)) return true;
     if (normalized && normalizeHourlyStoryText(previous.text) === normalized) return true;
   }
   return false;
@@ -812,7 +832,10 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       "krebsonsecurity.com","therecord.media","bleepingcomputer.com","darkreading.com","wired.com",
       "reuters.com","apnews.com","bbc.com","ft.com","theguardian.com","wsj.com","nytimes.com",
       "bellingcat.com","occrp.org","globalwitness.org","transparency.org","amnesty.org","hrw.org",
-      "techcrunch.com","arstechnica.com","theverge.com","zdnet.com","securityweek.com"
+      "techcrunch.com","arstechnica.com","theverge.com","zdnet.com","securityweek.com",
+      "bloomberg.com","cnbc.com","cnn.com","france24.com","dw.com","politico.eu","aljazeera.com","nikkei.com","scmp.com","theregister.com","venturebeat.com",
+      "government.ru","kremlin.ru","duma.gov.ru","rosfinmonitoring.gov.ru","minfin.gov.ru","mvd.ru","epp.genproc.gov.ru","fas.gov.ru","fns.gov.ru","publication.pravo.gov.ru",
+      "rbc.ru","kommersant.ru","vedomosti.ru","interfax.ru","tass.ru","ria.ru","rg.ru","iz.ru","forbes.ru","cnews.ru","securitylab.ru","banki.ru","habr.com","1prime.ru","expert.ru"
     ];
     const rootDomain = host => {
       const labels = String(host || "").toLowerCase().replace(/^www\./u, "").split(".").filter(Boolean);
@@ -821,6 +844,13 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const compound = new Set(["co.uk","org.uk","ac.uk","gov.uk","com.au","edu.au","co.nz","com.br","co.jp"]);
       return labels.length >= 3 && compound.has(suffix) ? labels.slice(-3).join(".") : suffix;
     };
+    const history = await storage.get("social:hourly:auto_history") || [];
+    const recentHistory = history.slice(-300);
+    const lastGeoScope = String(await storage.get("social:hourly:auto_last_geo_scope") || recentHistory.slice().reverse().find(item => item.geo_scope)?.geo_scope || "");
+    const geoScope = lastGeoScope === "Россия" ? "Мир" : "Россия";
+    const geoQuery = geoScope === "Россия"
+      ? "Russia Russian Federation Russian news российские новости Россия российский регулятор "
+      : "international world global news outside Russia мировые международные новости зарубежные регуляторы ";
     let sources = [];
     let searchFailure = "";
     // Never stop at a weak first topic: rotate through all three editorial tracks,
@@ -830,9 +860,15 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       track = candidate;
       await storage.put(slotKey, { status: "started", started_at_ms: Date.now(), track: track.name, created_at: new Date().toISOString() });
       const queries = [
-        track.query + " latest news investigation report 2026",
-        track.query + " official announcement research findings incident 2026",
-        track.focus + " recent developments primary source independent reporting"
+        geoQuery + track.query + " latest news investigation report 2026",
+        geoQuery + track.query + " official announcement research findings incident 2026",
+        geoQuery + track.focus + " recent developments primary source independent reporting",
+        geoScope === "Россия"
+          ? "Россия последние новости регулирование расследования комплаенс мошенничество кибербезопасность официальные источники 2026"
+          : "world latest regulatory enforcement investigation fraud cybersecurity compliance international 2026",
+        geoScope === "Россия"
+          ? "Россия Банк России Росфинмониторинг правительство РФ РБК Коммерсант новости 2026"
+          : "international regulator enforcement investigation Reuters AP BBC EU official news 2026"
       ];
       if (track.name === "OSINT") {
         queries.push("open source investigation geolocation digital forensics public records investigative journalism latest 2026");
@@ -851,8 +887,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           searchFailure = String(error.message || error);
           console.error("Hourly source search attempt failed:", { track: track.name, query, error: searchFailure });
         }
-        const domainSet = new Set();
-        const candidateSources = [];
+        const byUrl = new Map();
         for (const item of gathered) {
           const url = String(item.url || "").trim();
           if (!/^https?:\/\//iu.test(url)) continue;
@@ -860,14 +895,39 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           try { host = new URL(url).hostname.toLowerCase().replace(/^www\./u, ""); } catch (_) { continue; }
           if (!trustedDomains.some(domain => host === domain || host.endsWith("." + domain))) continue;
           const domain = rootDomain(host);
-          if (!domain || domainSet.has(domain)) continue;
-          domainSet.add(domain);
-          candidateSources.push({ id: candidateSources.length + 1, host, domain, url, title: String(item.title || ""), content: String(item.content || "").slice(0, 1200) });
+          if (!domain) continue;
+          const canonical = (host + new URL(url).pathname).toLowerCase().replace(/\/$/u, "");
+          if (!byUrl.has(canonical)) byUrl.set(canonical, { host, domain, url, title: String(item.title || ""), content: String(item.content || "").slice(0, 1200) });
         }
-        if (candidateSources.length >= 2) {
-          // Keep gathering across all query variants so retries have alternative stories.
-          sources = candidateSources;
+        const domainUsage = new Map();
+        const urlUsage = new Map();
+        const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        for (const item of recentHistory) {
+          if (hourlyRecordTime(item) < weekAgo) continue;
+          for (const domain of item.source_domains || []) domainUsage.set(domain, (domainUsage.get(domain) || 0) + 1);
+          for (const sourceUrl of item.source_urls || []) {
+            try {
+              const u = new URL(sourceUrl);
+              const key = (u.hostname + u.pathname).toLowerCase().replace(/\/$/u, "");
+              urlUsage.set(key, (urlUsage.get(key) || 0) + 1);
+            } catch (_) {}
+          }
         }
+        const candidateSources = [...byUrl.values()].sort((a, b) =>
+          (domainUsage.get(a.domain) || 0) - (domainUsage.get(b.domain) || 0) ||
+          (urlUsage.get((a.host + new URL(a.url).pathname).toLowerCase().replace(/\/$/u, "")) || 0) -
+          (urlUsage.get((b.host + new URL(b.url).pathname).toLowerCase().replace(/\/$/u, "")) || 0)
+        );
+        const domainCounts = new Map();
+        const diversifiedSources = [];
+        for (const source of candidateSources) {
+          const count = domainCounts.get(source.domain) || 0;
+          if (count >= 2) continue;
+          domainCounts.set(source.domain, count + 1);
+          diversifiedSources.push({ ...source, id: diversifiedSources.length + 1 });
+          if (diversifiedSources.length >= 30) break;
+        }
+        if (diversifiedSources.length >= 2) sources = diversifiedSources;
       }
       if (sources.length >= 2) break;
       console.warn("Hourly topic has insufficient trusted independent sources; switching track:", track.name);
@@ -876,8 +936,6 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       throw new Error("После повторного поиска по OSINT, Комплаенсу и Антифроду не удалось найти два независимых авторитетных источника. " + (searchFailure ? "Последняя ошибка поиска: " + searchFailure : "Следующий запуск повторит поиск."));
     }
     const sourceCatalogue = sources.map(s => "[" + s.id + "] " + s.host + " | " + s.title + " | " + s.url + "\n" + s.content).join("\n\n");
-    const history = await storage.get("social:hourly:auto_history") || [];
-    const recentHistory = history.slice(-100);
     const rejectedCandidates = [];
     let text = "";
     let selectedSources = [];
@@ -890,13 +948,14 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     for (let attempt = 1; attempt <= 6; attempt++) {
       const prompt = [
         "Ты — выпускающий редактор профессионального русскоязычного медиа об OSINT, комплаенсе и антифроде.",
-        "ТЕКУЩЕЕ НАПРАВЛЕНИЕ: " + track.name + ". Тематический фокус: " + track.focus + ".",
-        "Выбери ОДНО свежее событие или исследование из каталога источников и подготовь ОДИН готовый пост для Threads.",
+        "ТЕКУЩЕЕ НАПРАВЛЕНИЕ: " + track.name + ". География выпуска: " + geoScope + ". Тематический фокус: " + track.focus + ".",
+        "Выбери ОДНО свежее событие или исследование из каталога источников и подготовь ОДИН готовый пост для Threads. География должна строго соответствовать выпуску: " + geoScope + ". Для выпуска Россия — событие именно в России, о российском регулировании или российской организации; для выпуска Мир — международное или зарубежное событие, не российская новость.",
         "Пост: 2–3 полных связанных предложения, 180–470 символов. Первое сообщает, что произошло; второе раскрывает подтверждённую деталь и практическое значение; третье допустимо для контекста.",
         "Используй только факты, прямо подтверждаемые минимум двумя независимыми источниками. Не выдумывай факты, даты, цифры и причинно-следственные связи.",
         "Стиль профессиональный, аналитический и естественный. Без хештегов, ссылок, упоминаний, эмодзи и вопросов.",
         "КРИТИЧЕСКИ ВАЖНО: не используй ни одно событие из истории и списка отклонённых кандидатов. Если тема уже встречалась, выбери ДРУГОЕ событие из каталога, а не переписывай старую новость другими словами.",
-        "Последние опубликованные новости: " + JSON.stringify(recentHistory.slice(-30).map(item => ({ text: item.text, source_urls: item.source_urls || [] }))),
+        "Последние опубликованные новости за день: " + JSON.stringify(recentHistory.slice(-36).map(item => ({ text: item.text, geo_scope: item.geo_scope || "", source_urls: item.source_urls || [] }))),
+        "Не повторяй событие, даже если оно пересказано другими словами. Используй источники из разных редакций; предпочитай домены, которые реже встречались в недавних публикациях.",
         "Отклонённые в этой сессии кандидаты и причины: " + JSON.stringify(rejectedCandidates),
         "Предыдущая ошибка проверки: " + (lastGenerationError || "это первая попытка") + ". Исправь именно эту проблему, не повторяй отклонённый текст.",
         "Попытка " + attempt + " из 6. Верни строго JSON вида " + JSON.stringify({ category: track.name, text: "Два или три предложения поста.", source_ids: [1,2] }) + ". source_ids — ровно два разных числовых ID.",
@@ -944,12 +1003,12 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       }
     }
     if (!duplicateGuardPassed) {
-      throw new Error("Не удалось подобрать новую, не повторяющую предыдущие публикации новость за 4 попытки. " + lastGenerationError);
+      throw new Error("Не удалось подобрать новую, не повторяющую публикации за текущие сутки, новость за 6 попыток. " + lastGenerationError);
     }
     const published = await publishThreads(env, token, text);
     const at = new Date().toISOString();
     const record = {
-      slot, category: track.name, text,
+      slot, category: track.name, geo_scope: geoScope, text,
       source_urls: selectedSources.map(s => s.url),
       source_domains: selectedSources.map(s => s.domain),
       threads_post_id: published.id, threads_permalink: published.permalink, published_at: at
@@ -958,6 +1017,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     publishHistory.push(record);
     await storage.put("social:hourly:auto_history", publishHistory.slice(-100));
     await storage.put("social:hourly:auto_last_published_at", Date.now());
+    await storage.put("social:hourly:auto_last_geo_scope", geoScope);
     await storage.put(slotKey, { status: "published", ...record });
     await deps.telegram(env, "sendMessage", {
       chat_id: env.TELEGRAM_CHAT_ID,
