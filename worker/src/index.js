@@ -888,6 +888,50 @@ export default {
       return new Response("OSINT Editorial Gateway is running.");
     }
 
+    const requestUrl = new URL(request.url);
+    if (request.method === "POST" && requestUrl.pathname === "/internal/dzen-notify") {
+      const suppliedSecret = request.headers.get("X-Dzen-Notify-Secret");
+      if (!env.DZEN_NOTIFY_SECRET || !suppliedSecret || suppliedSecret !== env.DZEN_NOTIFY_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
+        return new Response("Telegram delivery is not configured", { status: 503 });
+      }
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return new Response("Invalid JSON", { status: 400 });
+      }
+      const status = String(payload.status || "");
+      if (!["success", "failure"].includes(status)) {
+        return new Response("Invalid notification status", { status: 400 });
+      }
+      const topic = String(payload.topic || "Тема не определена").slice(0, 500);
+      const category = String(payload.category || "Не определена").slice(0, 120);
+      const details = String(payload.details || "").slice(0, 1800);
+      const timestamp = String(payload.timestamp || new Date().toISOString()).slice(0, 80);
+      const publicationUrl = String(payload.url || "").slice(0, 500);
+      const heading = status === "success"
+        ? "✅ Публикация успешно размещена в Дзене"
+        : "❌ Публикация в Дзене не состоялась";
+      const lines = [
+        heading,
+        "",
+        "Тема: " + topic,
+        "Рубрика: " + category,
+        "Время: " + timestamp,
+        details ? "Подробности: " + details : "",
+        publicationUrl ? "Ссылка: " + publicationUrl : ""
+      ].filter(Boolean);
+      await telegram(env, "sendMessage", {
+        chat_id: env.TELEGRAM_CHAT_ID,
+        text: lines.join("\n"),
+        disable_web_page_preview: true
+      });
+      return json({ ok: true, delivered: true });
+    }
+
     if (request.method !== "POST") {
       return new Response("Method not allowed", {
         status: 405
