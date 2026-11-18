@@ -750,6 +750,9 @@ function isDuplicateHourlyStory(text, selectedSources, history, now = Date.now()
     const within24Hours = previousTime ? now - previousTime <= 24 * 60 * 60 * 1000 && now >= previousTime : false;
     if (!sameDay && !within24Hours) continue;
     const previousTokens = new Set(meaningful(previous.text));
+    const previousTitles = Array.isArray(previous.source_titles) ? previous.source_titles : [];
+    const currentTitles = (selectedSources || []).map(source => source.title || "").filter(Boolean);
+    if (currentTitles.some(title => previousTitles.some(oldTitle => hourlyStorySimilarity(title, oldTitle) >= 0.30))) return true;
     let sharedTokens = 0;
     for (const token of currentTokens) if (previousTokens.has(token)) sharedTokens++;
     const containment = Math.min(currentTokens.size, previousTokens.size) ? sharedTokens / Math.min(currentTokens.size, previousTokens.size) : 0;
@@ -871,12 +874,12 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           : "international regulator enforcement investigation Reuters AP BBC EU official news 2026"
       ];
       if (track.name === "OSINT") {
-        queries.push("open source investigation geolocation digital forensics public records investigative journalism latest 2026");
+        queries.push(geoQuery + "open source investigation geolocation digital forensics public records investigative journalism latest 2026");
       } else if (track.name === "Комплаенс") {
-        queries.push("AML KYC sanctions enforcement regulator guidance FATF FinCEN FCA EBA 2026");
-        queries.push("ПОД ФТ комплаенс новые требования разъяснения Банк России Росфинмониторинг 2026");
+        queries.push(geoQuery + "AML KYC sanctions enforcement regulator guidance FATF FinCEN FCA EBA 2026");
+        queries.push(geoQuery + "ПОД ФТ комплаенс новые требования разъяснения Банк России Росфинмониторинг 2026");
       } else {
-        queries.push("fraud scam deepfake cybercrime threat intelligence law enforcement report 2026");
+        queries.push(geoQuery + "fraud scam deepfake cybercrime threat intelligence law enforcement report 2026");
       }
       const gathered = [];
       for (const query of queries) {
@@ -1011,6 +1014,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       slot, category: track.name, geo_scope: geoScope, text,
       source_urls: selectedSources.map(s => s.url),
       source_domains: selectedSources.map(s => s.domain),
+      source_titles: selectedSources.map(s => s.title),
       threads_post_id: published.id, threads_permalink: published.permalink, published_at: at
     };
     const publishHistory = await storage.get("social:hourly:auto_history") || [];
