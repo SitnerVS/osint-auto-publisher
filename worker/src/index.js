@@ -243,7 +243,7 @@ async function geminiGenerate(env, prompt, options = {}) {
       .flatMap(item => Array.isArray(item.violations) ? item.violations : []);
     const retryInfo = details.find(item => item?.["@type"]?.includes("RetryInfo"));
     const retryDelay = retryInfo?.retryDelay || details.find(item => item?.retryDelay)?.retryDelay || "";
-    const retryMatch = String(retryDelay).match(/^(\\d+(?:\\.\\d+)?)s$/);
+    const retryMatch = String(retryDelay).match(/^(\d+(?:\.\d+)?)s$/);
     retryDelaySeconds = retryMatch ? Number(retryMatch[1]) : null;
     const quotaText = quotaDetails.map(item => [item.quotaMetric, item.quotaId, item.description].filter(Boolean).join(" ")).join(" ");
     const dailyQuota = /RequestsPerDay|requests_per_day|generate_content_free_tier_requests/i.test(quotaText);
@@ -265,7 +265,7 @@ async function geminiGenerate(env, prompt, options = {}) {
 
     if (!retryable || dailyQuota || attempt === maxAttempts || waitSeconds > 20) {
       const errorMessage = result.error?.message || (responseText
-        ? responseText.replace(/\\s+/g, " ").slice(0, 220)
+        ? responseText.replace(/\s+/g, " ").slice(0, 220)
         : "empty upstream response");
       const quotaInfo = quotaDetails.map(item => [
         item.quotaMetric && "quotaMetric=" + item.quotaMetric,
