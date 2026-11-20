@@ -815,7 +815,7 @@ function selectVerifiedHourlyQuote(history, scheduledAt) {
   const start = Math.abs(Math.floor(Number(scheduledAt || Date.now()) / 3600000)) % VERIFIED_HOURLY_QUOTES.length;
   for (let offset = 0; offset < VERIFIED_HOURLY_QUOTES.length; offset++) {
     const item = VERIFIED_HOURLY_QUOTES[(start + offset) % VERIFIED_HOURLY_QUOTES.length];
-    const text = "«" + item.quote + "»\\n\\n— " + item.author;
+    const text = "«" + item.quote + "»\n\n— " + item.author;
     if (!isDuplicateHourlyStory(text, [], history)) return { ...item, text };
   }
   return null;
