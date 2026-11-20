@@ -899,13 +899,13 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         if (specialCategory === "Цитаты великих людей") {
           const quote = normalizeText(parsed.quote || "");
           const author = normalizeText(parsed.author || "");
-          if (!quote || !author || quote.length > 300 || author.length > 90 || /[#@]|https?:\\/\\//iu.test(quote + author)) {
+          if (!quote || !author || quote.length > 300 || author.length > 90 || /[#@]|https?:\/\//iu.test(quote + author)) {
             throw new Error("Цитата или имя автора не прошли проверку формата");
           }
           specialText = "«" + quote.replace(/^«|»$/gu, "") + "»\\n\\n— " + author;
         } else {
           specialText = normalizeText(parsed.text || parsed.post || "");
-          if (!specialText || specialText.length > 350 || !/[А-Яа-яЁё]/u.test(specialText) || /[#@]|https?:\\/\\//iu.test(specialText)) {
+          if (!specialText || specialText.length > 350 || !/[А-Яа-яЁё]/u.test(specialText) || /[#@]|https?:\/\//iu.test(specialText)) {
             throw new Error("Ностальгический пост не прошёл проверку формата");
           }
         }
