@@ -802,6 +802,25 @@ const HOURLY_EDITORIAL_TRACKS = [
   }
 ];
 
+const VERIFIED_HOURLY_QUOTES = [
+  { quote: "Я жить хочу, чтоб мыслить и страдать.", author: "Александр Пушкин", source_title: "Элегия (1830)", source_url: "https://ru.wikisource.org/wiki/Элегия_(Пушкин)" },
+  { quote: "Нам не дано предугадать, как слово наше отзовётся, — и нам сочувствие даётся, как нам даётся благодать.", author: "Фёдор Тютчев", source_title: "Нам не дано предугадать (1869)", source_url: "https://ru.wikisource.org/wiki/Нам_не_дано_предугадать_(Тютчев)/ПСС_1913_(ДО)" },
+  { quote: "И долго буду тем любезен я народу, что чувства добрые я лирой пробуждал.", author: "Александр Пушкин", source_title: "Я памятник себе воздвиг нерукотворный (1836)", source_url: "https://ru.wikisource.org/wiki/Я_памятник_себе_воздвиг_нерукотворный_(Пушкин)" },
+  { quote: "О сколько нам открытий чудных готовят просвещенья дух, и опыт, сын ошибок трудных, и гений, парадоксов друг.", author: "Александр Пушкин", source_title: "О сколько нам открытий чудных (1829)", source_url: "https://ru.wikisource.org/wiki/О_сколько_нам_открытий_чудных_(Пушкин)" },
+  { quote: "Умом Россию не понять, аршином общим не измерить: у ней особенная стать — в Россию можно только верить.", author: "Фёдор Тютчев", source_title: "Умом Россию не понять (1866)", source_url: "https://ru.wikisource.org/wiki/Умом_Россию_не_понять_(Тютчев)/ПСС_2002_(СО)" },
+  { quote: "Молчи, скрывайся и таи и чувства и мечты свои.", author: "Фёдор Тютчев", source_title: "Silentium! (1830)", source_url: "https://ru.wikisource.org/wiki/Silentium!_(Тютчев)/ДО" }
+];
+
+function selectVerifiedHourlyQuote(history, scheduledAt) {
+  const start = Math.abs(Math.floor(Number(scheduledAt || Date.now()) / 3600000)) % VERIFIED_HOURLY_QUOTES.length;
+  for (let offset = 0; offset < VERIFIED_HOURLY_QUOTES.length; offset++) {
+    const item = VERIFIED_HOURLY_QUOTES[(start + offset) % VERIFIED_HOURLY_QUOTES.length];
+    const text = "«" + item.quote + "»\\n\\n— " + item.author;
+    if (!isDuplicateHourlyStory(text, [], history)) return { ...item, text };
+  }
+  return null;
+}
+
 export async function runHourlyAutoPublish(coordinator, payload, deps) {
   const storage = coordinator.ctx.storage;
   const env = coordinator.env;
@@ -865,28 +884,41 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const prompt = specialCategory === "Цитаты великих людей"
         ? "Ты — редактор рубрики коротких цитат для русскоязычного Threads. Подготовь ОДНУ подлинную, дословно точную и широко документированную цитату известного человека. Используй только цитату, авторство которой можно уверенно подтвердить надёжными источниками; не сочиняй и не пересказывай. Предпочитай первоисточники: книги, речи, письма, интервью и архивные публикации. Если точную формулировку и автора нельзя уверенно подтвердить, верни объект с признаком пропуска. Цитата должна быть вдохновляющей, мудрой или поддерживающей, без токсичной мотивации. Верни только поля quote и author. Не добавляй пояснений, хештегов, ссылок, эмодзи или вступления. Не повторяй недавние публикации: " + JSON.stringify(recentSpecial) + "."
         : "Ты — автор тёплой ностальгической рубрики о детстве. Напиши один короткий, добрый, живой пост-воспоминание о жизни детей в 1990-е годы или просто о детстве: двор, друзья, игры, школьные мелочи, телевизор, мультфильмы, кассеты, вкладыши, фишки, фантики, летние каникулы, семейные привычки. Используй узнаваемые бытовые детали, но не выдавай выдуманное за универсальный факт. Можно начать с А помните. Тон тёплый, светлый, без грусти по нынешним детям и без противопоставления поколений. 1–3 коротких предложения, до 350 символов. Не задавай вопрос в каждом посте, чередуй повествовательные форматы. Без хештегов, ссылок, упоминаний и эмодзи. Не повторяй недавние публикации: " + JSON.stringify(recentSpecial) + ".";
-      const generated = await deps.geminiGenerate(env, prompt, {
-        task: specialCategory === "Цитаты великих людей" ? "hourly_verified_inspirational_quote" : "hourly_childhood_nostalgia",
-        temperature: specialCategory === "Цитаты великих людей" ? 0.25 : 0.85,
-        maxOutputTokens: 500,
-        responseMimeType: "application/json",
-        ...(specialCategory === "Цитаты великих людей" ? { googleSearch: true } : {})
-      });
-      const parsed = parseJsonObject(generated);
-      if (parsed.skip === true) throw new Error("Не удалось подтвердить точную цитату и авторство");
       let specialText = "";
-      if (specialCategory === "Цитаты великих людей") {
-        const quote = normalizeText(parsed.quote || "");
-        const author = normalizeText(parsed.author || "");
-        if (!quote || !author || quote.length > 300 || author.length > 90 || /[#@]|https?:\/\//iu.test(quote + author)) {
-          throw new Error("Цитата или имя автора не прошли проверку формата");
+      let specialSource = null;
+      try {
+        const generated = await deps.geminiGenerate(env, prompt, {
+          task: specialCategory === "Цитаты великих людей" ? "hourly_verified_inspirational_quote" : "hourly_childhood_nostalgia",
+          temperature: specialCategory === "Цитаты великих людей" ? 0.25 : 0.85,
+          maxOutputTokens: 500,
+          responseMimeType: "application/json",
+          ...(specialCategory === "Цитаты великих людей" ? { googleSearch: true } : {})
+        });
+        const parsed = parseJsonObject(generated);
+        if (parsed.skip === true) throw new Error("Не удалось подтвердить точную цитату и авторство");
+        if (specialCategory === "Цитаты великих людей") {
+          const quote = normalizeText(parsed.quote || "");
+          const author = normalizeText(parsed.author || "");
+          if (!quote || !author || quote.length > 300 || author.length > 90 || /[#@]|https?:\\/\\//iu.test(quote + author)) {
+            throw new Error("Цитата или имя автора не прошли проверку формата");
+          }
+          specialText = "«" + quote.replace(/^«|»$/gu, "") + "»\\n\\n— " + author;
+        } else {
+          specialText = normalizeText(parsed.text || parsed.post || "");
+          if (!specialText || specialText.length > 350 || !/[А-Яа-яЁё]/u.test(specialText) || /[#@]|https?:\\/\\//iu.test(specialText)) {
+            throw new Error("Ностальгический пост не прошёл проверку формата");
+          }
         }
-        specialText = "«" + quote.replace(/^«|»$/gu, "") + "»\n\n— " + author;
-      } else {
-        specialText = normalizeText(parsed.text || parsed.post || "");
-        if (!specialText || specialText.length > 350 || !/[А-Яа-яЁё]/u.test(specialText) || /[#@]|https?:\/\//iu.test(specialText)) {
-          throw new Error("Ностальгический пост не прошёл проверку формата");
-        }
+      } catch (generationError) {
+        if (specialCategory !== "Цитаты великих людей") throw generationError;
+        const fallback = selectVerifiedHourlyQuote(specialHistory, scheduledAt);
+        if (!fallback) throw new Error("Gemini недоступен из-за квоты, а все резервные проверенные цитаты уже использованы недавно. " + String(generationError.message || generationError).slice(0, 250));
+        specialText = fallback.text;
+        specialSource = fallback;
+        console.warn("Gemini unavailable; selected pre-verified quote fallback:", {
+          source: fallback.source_title, author: fallback.author,
+          reason: String(generationError.message || generationError).slice(0, 250)
+        });
       }
       if (isDuplicateHourlyStory(specialText, [], specialHistory)) {
         throw new Error("Обнаружен повтор недавней публикации в этой рубрике");
@@ -895,7 +927,9 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const at = new Date().toISOString();
       const record = {
         slot, category: specialCategory, geo_scope: "", text: specialText,
-        source_urls: [], source_domains: [], source_titles: [],
+        source_urls: specialSource ? [specialSource.source_url] : [],
+        source_domains: specialSource ? ["ru.wikisource.org"] : [],
+        source_titles: specialSource ? [specialSource.source_title] : [],
         threads_post_id: published.id, threads_permalink: published.permalink, published_at: at
       };
       const publishHistory = await storage.get("social:hourly:auto_history") || [];
