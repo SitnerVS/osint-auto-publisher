@@ -837,6 +837,75 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
   await storage.put(slotKey, { status: "started", started_at_ms: Date.now(), track: track.name, created_at: new Date().toISOString() });
 
   try {
+    const moscowHour = Number(new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Moscow", hour: "2-digit", hour12: false
+    }).format(new Date(scheduledAt)));
+    const specialSlots = {
+      8: "Цитаты великих людей",
+      11: "Тёплые воспоминания о детстве",
+      14: "Цитаты великих людей",
+      17: "Тёплые воспоминания о детстве",
+      20: "Цитаты великих людей",
+      23: "Тёплые воспоминания о детстве"
+    };
+    const specialCategory = specialSlots[moscowHour];
+    if (specialCategory) {
+      track = {
+        name: specialCategory,
+        focus: specialCategory === "Цитаты великих людей"
+          ? "точные, документально подтверждённые цитаты известных исторических деятелей, учёных, писателей и мыслителей"
+          : "добрые, узнаваемые воспоминания о детстве и повседневной жизни детей в 1990-е годы и в более ранние времена"
+      };
+      await storage.put(slotKey, { status: "started", started_at_ms: Date.now(), track: track.name, created_at: new Date().toISOString() });
+      const recentSpecial = recentHistory.slice(-45).map(item => String(item.text || "").slice(0, 300));
+      const prompt = specialCategory === "Цитаты великих людей"
+        ? "Ты — редактор рубрики коротких цитат для русскоязычного Threads. Подготовь ОДНУ подлинную, дословно точную и широко документированную цитату известного человека. Используй только цитату, авторство которой можно уверенно подтвердить надёжными источниками; не сочиняй, не пересказывай и не приписывай автору популярные ошибочные цитаты. Предпочитай первоисточники: книги, речи, письма, интервью, архивные публикации. Если не можешь подтвердить точную формулировку и автора — верни {\\"skip\\":true}. Цитата должна быть вдохновляющей, мудрой или поддерживающей, без токсичной мотивации и давления. Формат строго: одна цитата в поле quote и имя автора в поле author. Не добавляй пояснений, хештегов, ссылок, эмодзи или вступления. Не повторяй недавние публикации: " + JSON.stringify(recentSpecial) + ". Верни JSON."
+        : "Ты — автор тёплой ностальгической рубрики о детстве. Напиши один короткий, добрый, живой пост-воспоминание о жизни детей в 1990-е годы или просто о детстве: двор, друзья, игры, школьные мелочи, телевизор, мультфильмы, кассеты, вкладыши, фишки, фантики, летние каникулы, семейные привычки. Используй узнаваемые бытовые детали, но не выдавай выдуманное за универсальный факт и не утверждай, что все жили одинаково. Можно начать с «А помните…». Тон тёплый, светлый, без грусти по нынешним детям и без противопоставления поколений. 1–3 коротких предложения, до 350 символов. Не задавай вопрос в каждом посте, чередуй повествовательные форматы. Без хештегов, ссылок, упоминаний и эмодзи. Не повторяй недавние публикации: " + JSON.stringify(recentSpecial) + ". Верни строго JSON {\\"text\\":\\"...\\"}.";
+      const generated = await deps.geminiGenerate(env, prompt, {
+        task: specialCategory === "Цитаты великих людей" ? "hourly_verified_inspirational_quote" : "hourly_childhood_nostalgia",
+        temperature: specialCategory === "Цитаты великих людей" ? 0.25 : 0.85,
+        maxOutputTokens: 500,
+        responseMimeType: "application/json",
+        ...(specialCategory === "Цитаты великих людей" ? { googleSearch: true } : {})
+      });
+      const parsed = parseJsonObject(generated);
+      if (parsed.skip === true) throw new Error("Не удалось подтвердить точную цитату и авторство");
+      let specialText = "";
+      if (specialCategory === "Цитаты великих людей") {
+        const quote = normalizeText(parsed.quote || "");
+        const author = normalizeText(parsed.author || "");
+        if (!quote || !author || quote.length > 300 || author.length > 90 || /[#@]|https?:\/\//iu.test(quote + author)) {
+          throw new Error("Цитата или имя автора не прошли проверку формата");
+        }
+        specialText = "«" + quote.replace(/^«|»$/gu, "") + "»\\n\\n— " + author;
+      } else {
+        specialText = normalizeText(parsed.text || parsed.post || "");
+        if (!specialText || specialText.length > 350 || !/[А-Яа-яЁё]/u.test(specialText) || /[#@]|https?:\/\//iu.test(specialText)) {
+          throw new Error("Ностальгический пост не прошёл проверку формата");
+        }
+      }
+      if (isDuplicateHourlyStory(specialText, [], recentHistory)) {
+        throw new Error("Обнаружен повтор недавней публикации в этой рубрике");
+      }
+      const published = await publishThreads(env, token, specialText);
+      const at = new Date().toISOString();
+      const record = {
+        slot, category: specialCategory, geo_scope: "", text: specialText,
+        source_urls: [], source_domains: [], source_titles: [],
+        threads_post_id: published.id, threads_permalink: published.permalink, published_at: at
+      };
+      const publishHistory = await storage.get("social:hourly:auto_history") || [];
+      publishHistory.push(record);
+      await storage.put("social:hourly:auto_history", publishHistory.slice(-300));
+      await storage.put("social:hourly:auto_last_published_at", Date.now());
+      await storage.put(slotKey, { status: "published", ...record });
+      await deps.telegram(env, "sendMessage", {
+        chat_id: env.TELEGRAM_CHAT_ID,
+        text: "НОВАЯ РУБРИКА ОПУБЛИКОВАНА\\nНаправление: " + specialCategory + "\\n\\n" + specialText +
+          (published.permalink ? "\\n\\n" + published.permalink : "")
+      });
+      return { ok: true, published: true, category: specialCategory, text: specialText, permalink: published.permalink };
+    }
     const searchAvailable = typeof deps.tavilySearch === "function";
     const trustedDomains = [
       "cisa.gov","fbi.gov","ic3.gov","nist.gov","ftc.gov","sec.gov","justice.gov","treasury.gov",
