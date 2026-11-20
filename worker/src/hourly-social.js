@@ -506,7 +506,7 @@ const generationPrompt = [
       let issues = validationIssues(variants);
       if (issues.length) {
         console.warn("Hourly preview validation failed; requesting one repair pass:", issues);
-        const repairPrompt = groundedPrompt + "\n\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ПРОВЕРКУ. Верни ровно пять вариантов. КАЖДЫЙ text обязан содержать ровно 2 ИЛИ 3 ПОЛНЫХ ПРЕДЛОЖЕНИЯ, не одно. Первое предложение сообщает событие; второе добавляет конкретную подтверждённую подробность и объясняет его значение. Длина каждого text — 180–470 символов. Разделяй предложения точкой и пробелом. Для каждого варианта укажи ровно два разных source_ids из каталога. Верни только JSON с полями text и source_ids. Ошибки: " + issues.join(" ") + "\\n\\nПРЕДЫДУЩИЕ ВАРИАНТЫ ДЛЯ ИСПРАВЛЕНИЯ: " + JSON.stringify(rawVariants);
+        const repairPrompt = groundedPrompt + "\n\nПРЕДЫДУЩИЙ ОТВЕТ НЕ ПРОШЁЛ ПРОВЕРКУ. Верни ровно пять вариантов. КАЖДЫЙ text обязан содержать ровно 2 ИЛИ 3 ПОЛНЫХ ПРЕДЛОЖЕНИЯ, не одно. Первое предложение сообщает событие; второе добавляет конкретную подтверждённую подробность и объясняет его значение. Длина каждого text — 180–470 символов. Разделяй предложения точкой и пробелом. Для каждого варианта укажи ровно два разных source_ids из каталога. Верни только JSON с полями text и source_ids. Ошибки: " + issues.join(" ") + "\n\nПРЕДЫДУЩИЕ ВАРИАНТЫ ДЛЯ ИСПРАВЛЕНИЯ: " + JSON.stringify(rawVariants);
         const repairedRaw = await deps.geminiGenerate(env, repairPrompt, {
           task: "hourly_verified_facts_recheck",
           model: "gemini-3.5-flash-lite",
@@ -877,7 +877,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         if (!quote || !author || quote.length > 300 || author.length > 90 || /[#@]|https?:\/\//iu.test(quote + author)) {
           throw new Error("Цитата или имя автора не прошли проверку формата");
         }
-        specialText = "«" + quote.replace(/^«|»$/gu, "") + "»\\n\\n— " + author;
+        specialText = "«" + quote.replace(/^«|»$/gu, "") + "»\n\n— " + author;
       } else {
         specialText = normalizeText(parsed.text || parsed.post || "");
         if (!specialText || specialText.length > 350 || !/[А-Яа-яЁё]/u.test(specialText) || /[#@]|https?:\/\//iu.test(specialText)) {
@@ -901,8 +901,8 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       await storage.put(slotKey, { status: "published", ...record });
       await deps.telegram(env, "sendMessage", {
         chat_id: env.TELEGRAM_CHAT_ID,
-        text: "НОВАЯ РУБРИКА ОПУБЛИКОВАНА\\nНаправление: " + specialCategory + "\\n\\n" + specialText +
-          (published.permalink ? "\\n\\n" + published.permalink : "")
+        text: "НОВАЯ РУБРИКА ОПУБЛИКОВАНА\nНаправление: " + specialCategory + "\n\n" + specialText +
+          (published.permalink ? "\n\n" + published.permalink : "")
       });
       return { ok: true, published: true, category: specialCategory, text: specialText, permalink: published.permalink };
     }
