@@ -790,7 +790,7 @@ async function callCoordinator(env, path, payload) {
   }
 
   if (!response.ok || !result.ok) {
-    const detail = String(result.error || result.message || response.status);
+    const detail = String(result.error || result.message || response.status) + (result.detail ? ": " + String(result.detail).slice(0, 700) : "");
     console.error("Approval Coordinator request failed:", { path, status: response.status, detail });
     throw new Error(`Approval Coordinator ${path} error: ${detail} (HTTP ${response.status})`);
   }
@@ -1884,7 +1884,8 @@ export class ApprovalCoordinator {
 
       return json({
         ok: false,
-        error: "Processing failed"
+        error: "Processing failed",
+        detail: String(error.message || error).slice(0, 700)
       }, 500);
     }
   }
