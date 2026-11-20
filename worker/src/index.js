@@ -209,96 +209,81 @@ async function geminiGenerate(env, prompt, options = {}) {
 
   while (attempt < maxAttempts) {
     attempt++;
-    response = await requestGemini(activeModel, requestBody);
-
+    let responseText = "";
     try {
-      result = await response.json();
-    } catch {
-      throw new Error(`Gemini returned invalid JSON: ${response.status}`);
+      response = await requestGemini(activeModel, requestBody);
+      responseText = await response.text();
+      try { result = responseText ? JSON.parse(responseText) : {}; }
+      catch { result = {}; }
+    } catch (networkError) {
+      console.warn("Gemini transport failure:", { model: activeModel, attempt, message: String(networkError.message || networkError).slice(0, 250) });
+      if (attempt < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, Math.min(1500 * attempt, 5000)));
+        continue;
+      }
+      if (fallbackModels.length) {
+        const previousModel = activeModel;
+        activeModel = fallbackModels.shift();
+        attempt = 0;
+        console.warn("Gemini transport fallback:", { from: previousModel, to: activeModel });
+        continue;
+      }
+      throw new Error("Gemini transport error: " + String(networkError.message || networkError).slice(0, 350));
     }
 
-    if (response.ok) break;
+    if (response.ok) {
+      if (!result || typeof result !== "object" || Array.isArray(result)) {
+        throw new Error("Gemini returned malformed JSON with HTTP " + response.status);
+      }
+      break;
+    }
 
     const details = Array.isArray(result.error?.details) ? result.error.details : [];
-    const quotaDetails = details
-      .filter(item => item?.["@type"]?.includes("QuotaFailure"))
+    const quotaDetails = details.filter(item => item?.["@type"]?.includes("QuotaFailure"))
       .flatMap(item => Array.isArray(item.violations) ? item.violations : []);
     const retryInfo = details.find(item => item?.["@type"]?.includes("RetryInfo"));
     const retryDelay = retryInfo?.retryDelay || details.find(item => item?.retryDelay)?.retryDelay || "";
     const retryMatch = String(retryDelay).match(/^(\\d+(?:\\.\\d+)?)s$/);
     retryDelaySeconds = retryMatch ? Number(retryMatch[1]) : null;
-    const quotaText = quotaDetails.map(item =>
-      [item.quotaMetric, item.quotaId, item.description].filter(Boolean).join(" ")
-    ).join(" ");
+    const quotaText = quotaDetails.map(item => [item.quotaMetric, item.quotaId, item.description].filter(Boolean).join(" ")).join(" ");
     const dailyQuota = /RequestsPerDay|requests_per_day|generate_content_free_tier_requests/i.test(quotaText);
+    const retryable = [408, 425, 429, 500, 502, 503, 504, 522, 524].includes(response.status);
+    const retryAfter = response.headers.get("retry-after");
+    const retryAfterSeconds = Number(retryAfter);
+    const waitSeconds = retryDelaySeconds ?? (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+      ? Math.min(retryAfterSeconds, 15) : Math.min(2 ** (attempt - 1), 8));
 
-    // Quotas are model-specific in Gemini. On 429, move to another free
-    // Flash model instead of repeatedly calling the exhausted model.
-    if (response.status === 429 && fallbackModels.length) {
+    // Gateway failures (including Cloudflare 524 HTML responses) must be
+    // retried/fail over before attempting to interpret their response as JSON.
+    if ((response.status === 429 || [500, 502, 503, 504, 522, 524].includes(response.status)) && fallbackModels.length) {
       const previousModel = activeModel;
       activeModel = fallbackModels.shift();
       attempt = 0;
-      console.warn("Gemini quota fallback:", {
-        from: previousModel,
-        to: activeModel,
-        dailyQuota,
-        quotaText
-      });
+      console.warn("Gemini model fallback:", { from: previousModel, to: activeModel, status: response.status, dailyQuota });
       continue;
     }
 
-    // A daily quota cannot be repaired by immediate retries. Honour Google's
-    // RetryInfo for transient throttling, with bounded exponential backoff.
-    const retryable = response.status === 429 || response.status === 503;
-    const waitSeconds = retryDelaySeconds ?? Math.min(2 ** (attempt - 1), 8);
-
     if (!retryable || dailyQuota || attempt === maxAttempts || waitSeconds > 20) {
-      const errorMessage = result.error?.message || "Unknown Gemini error";
-      const quotaInfo = [
-        ...quotaDetails.map(item => {
-          const parts = [];
-          if (item.quotaMetric) parts.push("quotaMetric=" + item.quotaMetric);
-          if (item.quotaId) parts.push("quotaId=" + item.quotaId);
-          if (item.description) parts.push("description=" + item.description);
-          if (item.quotaValue) parts.push("quotaValue=" + item.quotaValue);
-          if (item.quotaDimensions) parts.push("dimensions=" + JSON.stringify(item.quotaDimensions));
-          return parts.join(", ");
-        }),
-        ...details.filter(item => item?.retryDelay).map(item => "retryDelay=" + item.retryDelay)
-      ].filter(Boolean).join("; ");
-      const retryAfter = response.headers.get("retry-after");
+      const errorMessage = result.error?.message || (responseText
+        ? responseText.replace(/\\s+/g, " ").slice(0, 220)
+        : "empty upstream response");
+      const quotaInfo = quotaDetails.map(item => [
+        item.quotaMetric && "quotaMetric=" + item.quotaMetric,
+        item.quotaId && "quotaId=" + item.quotaId,
+        item.description && "description=" + item.description
+      ].filter(Boolean).join(", ")).filter(Boolean).join("; ");
       const diagnostic = [
         "Модель: " + activeModel,
         quotaInfo ? "Детали лимита: " + quotaInfo : "",
-        retryAfter ? "Повторить через: " + retryAfter + " сек." : "",
-        dailyQuota ? "Дневная квота исчерпана; повтор до сброса не поможет" : "",
-        !quotaInfo ? "Провайдер не передал детализацию квоты" : ""
+        retryAfter ? "Retry-After: " + retryAfter : "",
+        dailyQuota ? "Дневная квота исчерпана; повтор до сброса не поможет" : ""
       ].filter(Boolean).join(". ");
-
-      console.error("Gemini API error:", {
-        status: response.status,
-        model: activeModel,
-        message: errorMessage,
-        quotaInfo,
-        retryAfter,
-        attempt,
-        dailyQuota
-      });
-
-      throw new Error(
-        `Gemini API ${response.status}: ${errorMessage}${diagnostic ? ". " + diagnostic : ""}`
-      );
+      console.error("Gemini API error:", { status: response.status, model: activeModel, message: errorMessage, quotaInfo, retryAfter, attempt, dailyQuota });
+      throw new Error("Gemini API HTTP " + response.status + ": " + errorMessage.slice(0, 350) + (diagnostic ? ". " + diagnostic : ""));
     }
 
-    const jitterMs = Math.floor(Math.random() * 500);
-    const delayMs = Math.max(1000, waitSeconds * 1000) + jitterMs;
-    console.warn("Gemini transient throttle; retrying:", {
-      model: activeModel,
-      attempt,
-      maxAttempts,
-      waitMs: delayMs,
-      status: response.status
-    });
+    const delayMs = Math.max(1000, waitSeconds * 1000) + Math.floor(Math.random() * 500);
+    console.warn("Gemini transient upstream failure; retrying:", { model: activeModel, attempt, maxAttempts, waitMs: delayMs, status: response.status });
     await new Promise(resolve => setTimeout(resolve, delayMs));
   }
 
@@ -1876,15 +1861,15 @@ export class ApprovalCoordinator {
       return json(result);
 
     } catch (error) {
-      console.error(
-        "Coordinator error:",
-        error.message,
-        error.stack || ""
-      );
-
+      if (path === "/generate" && payload?.schedule_key) {
+        await this.ctx.storage.put("schedule-run:" + String(payload.schedule_key), {
+          status: "failed", failed_at: new Date().toISOString(),
+          error: String(error.message || error).slice(0, 500)
+        }).catch(storageError => console.error("Could not persist failed schedule state:", storageError.message));
+      }
+      console.error("Coordinator error:", error.message, error.stack || "");
       return json({
-        ok: false,
-        error: "Processing failed",
+        ok: false, error: "Processing failed",
         detail: String(error.message || error).slice(0, 700)
       }, 500);
     }
@@ -2065,11 +2050,18 @@ export class ApprovalCoordinator {
 
     const scheduleKey = String(payload.schedule_key || "");
     if (scheduleKey) {
-      const existingSchedule = await this.ctx.storage.get("schedule-run:" + scheduleKey);
-      if (existingSchedule) return { ok: true, duplicate: true, item_id: existingSchedule.item_id || "" };
-      await this.ctx.storage.put("schedule-run:" + scheduleKey, {
-        status: "started",
-        started_at: new Date().toISOString()
+      const scheduleStorageKey = "schedule-run:" + scheduleKey;
+      const existingSchedule = await this.ctx.storage.get(scheduleStorageKey);
+      const startedAt = Date.parse(existingSchedule?.started_at || "");
+      const staleStarted = existingSchedule?.status === "started" &&
+        (!Number.isFinite(startedAt) || Date.now() - startedAt > 12 * 60 * 1000);
+      if (existingSchedule?.status === "created" ||
+          (existingSchedule?.status === "started" && !staleStarted)) {
+        return { ok: true, duplicate: true, item_id: existingSchedule.item_id || "" };
+      }
+      await this.ctx.storage.put(scheduleStorageKey, {
+        status: "started", started_at: new Date().toISOString(),
+        attempts: Number(existingSchedule?.attempts || 0) + 1
       });
     }
 
@@ -2115,7 +2107,7 @@ export class ApprovalCoordinator {
       const generatedTopic = await geminiGenerate(
         this.env,
         prompt + historyInstruction + "\\nПопытка " + attempt + " из 5. Если тема похожа на список выше, придумай принципиально другой сюжет.",
-        { task: "topic" }
+        { task: "topic", maxAttempts: 2, fallbackModels: ["gemini-3.1-flash-lite"] }
       );
       const candidate = generatedTopic.replace(/^[\"«]|[\"»]$/g, "").trim();
       if (!candidate) { lastTopicError = "Gemini generated an empty topic"; continue; }
