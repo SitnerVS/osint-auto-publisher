@@ -1452,12 +1452,27 @@ export default {
         });
         const editorialSlots = SETTINGS.publishing.feed_schedule || [];
         if (editorialSlots.includes(localTime)) {
-          const editorialResult = await callCoordinator(env, "/generate", {
+          const editorialPayload = {
             user_id: env.TELEGRAM_CHAT_ID,
             chat_id: env.TELEGRAM_CHAT_ID,
             scheduled_at: controller.scheduledTime,
             schedule_key: "editorial:" + new Date(controller.scheduledTime).toISOString()
-          });
+          };
+          let editorialResult = null;
+          let editorialError = null;
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+              editorialResult = await callCoordinator(env, "/generate", editorialPayload);
+              break;
+            } catch (error) {
+              editorialError = error;
+              console.error("Scheduled editorial generation attempt failed:", {
+                attempt, error: String(error.message || error).slice(0, 500)
+              });
+              if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+          }
+          if (!editorialResult) throw editorialError || new Error("Scheduled editorial generation failed");
           console.log("Scheduled editorial approval workflow started:", editorialResult);
         }
         const hourlyState = await callCoordinator(env, "/hourly-expire", {
