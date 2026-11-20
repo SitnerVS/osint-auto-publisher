@@ -857,7 +857,11 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           : "добрые, узнаваемые воспоминания о детстве и повседневной жизни детей в 1990-е годы и в более ранние времена"
       };
       await storage.put(slotKey, { status: "started", started_at_ms: Date.now(), track: track.name, created_at: new Date().toISOString() });
-      const recentSpecial = recentHistory.slice(-45).map(item => String(item.text || "").slice(0, 300));
+      // Load the hourly history before using it in either special publication track.
+      // The regular OSINT/compliance/anti-fraud flow initializes its own history later.
+      const specialHistoryValue = await storage.get("social:hourly:auto_history");
+      const specialHistory = Array.isArray(specialHistoryValue) ? specialHistoryValue : [];
+      const recentSpecial = specialHistory.slice(-45).map(item => String(item.text || "").slice(0, 300));
       const prompt = specialCategory === "Цитаты великих людей"
         ? "Ты — редактор рубрики коротких цитат для русскоязычного Threads. Подготовь ОДНУ подлинную, дословно точную и широко документированную цитату известного человека. Используй только цитату, авторство которой можно уверенно подтвердить надёжными источниками; не сочиняй и не пересказывай. Предпочитай первоисточники: книги, речи, письма, интервью и архивные публикации. Если точную формулировку и автора нельзя уверенно подтвердить, верни объект с признаком пропуска. Цитата должна быть вдохновляющей, мудрой или поддерживающей, без токсичной мотивации. Верни только поля quote и author. Не добавляй пояснений, хештегов, ссылок, эмодзи или вступления. Не повторяй недавние публикации: " + JSON.stringify(recentSpecial) + "."
         : "Ты — автор тёплой ностальгической рубрики о детстве. Напиши один короткий, добрый, живой пост-воспоминание о жизни детей в 1990-е годы или просто о детстве: двор, друзья, игры, школьные мелочи, телевизор, мультфильмы, кассеты, вкладыши, фишки, фантики, летние каникулы, семейные привычки. Используй узнаваемые бытовые детали, но не выдавай выдуманное за универсальный факт. Можно начать с А помните. Тон тёплый, светлый, без грусти по нынешним детям и без противопоставления поколений. 1–3 коротких предложения, до 350 символов. Не задавай вопрос в каждом посте, чередуй повествовательные форматы. Без хештегов, ссылок, упоминаний и эмодзи. Не повторяй недавние публикации: " + JSON.stringify(recentSpecial) + ".";
@@ -884,7 +888,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           throw new Error("Ностальгический пост не прошёл проверку формата");
         }
       }
-      if (isDuplicateHourlyStory(specialText, [], recentHistory)) {
+      if (isDuplicateHourlyStory(specialText, [], specialHistory)) {
         throw new Error("Обнаружен повтор недавней публикации в этой рубрике");
       }
       const published = await publishThreads(env, token, specialText);
