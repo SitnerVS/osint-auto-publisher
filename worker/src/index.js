@@ -2098,7 +2098,9 @@ export class ApprovalCoordinator {
         await this.ctx.storage.setAlarm(Date.now() + 1000);
         return { ok: true, status: "generating", duplicate: true, job_id: existingJobId };
       }
-      if (existingSchedule?.status === "started" && !staleStarted) {
+      // A legacy "started" schedule without a persisted job is an orphaned run.
+      // Recover it instead of treating it as a successful duplicate.
+      if (existingSchedule?.status === "started" && !staleStarted && existingJob) {
         return { ok: true, duplicate: true, item_id: existingSchedule.item_id || "" };
       }
       await this.ctx.storage.put(scheduleStorageKey, {
