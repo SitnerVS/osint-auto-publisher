@@ -2196,14 +2196,15 @@ export class ApprovalCoordinator {
     if (Number(job.next_attempt_at || 0) > now) return Number(job.next_attempt_at);
 
     const attempt = Number(job.attempts || 0) + 1;
-    const latestTopics = await getRecentEditorialTopics(this.ctx.storage, job.item_id || "");
-    const blockedTopics = [...new Set([
-      ...(Array.isArray(job.recent_topics) ? job.recent_topics : []),
-      ...latestTopics,
-      ...(Array.isArray(job.rejected_candidates) ? job.rejected_candidates : [])
-    ].filter(Boolean))];
 
     try {
+      const latestTopics = await getRecentEditorialTopics(this.ctx.storage, job.item_id || "");
+      const blockedTopics = [...new Set([
+        ...(Array.isArray(job.recent_topics) ? job.recent_topics : []),
+        ...latestTopics,
+        ...(Array.isArray(job.rejected_candidates) ? job.rejected_candidates : [])
+      ].filter(Boolean))];
+
       const generatedTopic = await geminiGenerate(
         this.env,
         job.prompt +
