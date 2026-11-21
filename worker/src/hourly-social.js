@@ -866,6 +866,35 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
   const scheduledAt = Number(payload?.scheduled_at || Date.now());
   const slot = new Date(scheduledAt).toISOString().slice(0, 13);
   const slotKey = "social:hourly:auto_slot:" + slot;
+  if (payload?.action === "approve" || payload?.action === "reject") {
+    const pending = await storage.get(slotKey);
+    if (!pending || pending.status !== "awaiting_approval") {
+      return { ok: false, error: "Публикация уже обработана или не ожидает согласования." };
+    }
+    if (payload.action === "reject") {
+      await storage.put(slotKey, { ...pending, status: "rejected", reviewed_at: new Date().toISOString() });
+      return { ok: true, rejected: true, slot };
+    }
+    const reviewToken = await storage.get("threads:oauth:token");
+    if (!reviewToken?.access_token || !reviewToken?.user_id || Number(reviewToken.expires_at || 0) <= Date.now()) {
+      return { ok: false, error: "Токен Threads отсутствует или истёк; пост сохранён, решение не потеряно." };
+    }
+    await storage.put(slotKey, { ...pending, status: "publishing", approved_at: new Date().toISOString() });
+    try {
+      const published = await publishThreads(env, reviewToken, pending.text);
+      const at = new Date().toISOString();
+      const record = { ...pending, threads_post_id: published.id, threads_permalink: published.permalink, published_at: at, status: "published" };
+      const history = await storage.get("social:hourly:auto_history") || [];
+      history.push(record);
+      await storage.put("social:hourly:auto_history", history.slice(-300));
+      await storage.put("social:hourly:auto_last_published_at", Date.now());
+      await storage.put(slotKey, record);
+      return { ok: true, published: true, text: pending.text, permalink: published.permalink, slot };
+    } catch (error) {
+      await storage.put(slotKey, { ...pending, status: "awaiting_approval", publish_error: String(error.message || error).slice(0, 500) });
+      return { ok: false, error: "Threads не подтвердил публикацию. Черновик сохранён: " + String(error.message || error).slice(0, 350) };
+    }
+  }
   const existing = await storage.get(slotKey);
   if (existing?.status === "published") return { ok: true, skipped: true, reason: "slot_already_published" };
   if (existing?.status === "started" && Date.now() - Number(existing.started_at_ms || 0) < 10 * 60 * 1000) {
@@ -1255,6 +1284,25 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     }
     if (!duplicateGuardPassed) {
       throw new Error("Не удалось подготовить неповторяющийся пост даже в резервном редакционном режиме. " + lastGenerationError);
+    }
+    if (originalOnly && selectedSources.length === 0) {
+      const pendingRecord = {
+        slot, category: track.name, geo_scope: geoScope, text,
+        source_urls: [], source_domains: [], source_titles: [],
+        status: "awaiting_approval", created_at: new Date().toISOString()
+      };
+      await storage.put(slotKey, pendingRecord);
+      await deps.telegram(env, "sendMessage", {
+        chat_id: env.TELEGRAM_CHAT_ID,
+        text: "НУЖНО СОГЛАСОВАНИЕ\nПричина: не удалось получить подходящий источник. Подготовлен авторский материал без неподтверждённых текущих фактов.\nНаправление: " + track.name + "\n\n" + text,
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "Согласовать и опубликовать", callback_data: "hourly_review:approve:" + slot },
+            { text: "Отклонить", callback_data: "hourly_review:reject:" + slot }
+          ]]
+        }
+      });
+      return { ok: true, pending_approval: true, category: track.name, text, slot };
     }
     const published = await publishThreads(env, token, text);
     const at = new Date().toISOString();
