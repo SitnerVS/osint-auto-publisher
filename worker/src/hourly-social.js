@@ -864,7 +864,10 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     return { ok: true, skipped: true, reason: "threads_publishing_disabled" };
   }
   const scheduledAt = Number(payload?.scheduled_at || Date.now());
-  const slot = new Date(scheduledAt).toISOString().slice(0, 13);
+  const requestedSlot = typeof payload?.slot === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}$/u.test(payload.slot)
+    ? payload.slot
+    : null;
+  const slot = requestedSlot || new Date(scheduledAt).toISOString().slice(0, 13);
   const slotKey = "social:hourly:auto_slot:" + slot;
   if (payload?.action === "approve" || payload?.action === "reject") {
     const pending = await storage.get(slotKey);
