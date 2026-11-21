@@ -1230,6 +1230,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           selectedSources = [];
           sourceIds = [];
           duplicateGuardPassed = true;
+          originalOnly = true;
         }
       } catch (fallbackError) {
         console.error("Original editorial fallback generation failed:", fallbackError.message);
