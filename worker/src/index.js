@@ -2149,7 +2149,7 @@ export class ApprovalCoordinator {
           prompt + historyInstruction + "\\nПопытка " + attempt + ". Предложи новый самостоятельный сюжет, не повторяющий ни одну тему из списка.",
           { task: "topic", maxAttempts: 3, fallbackModels: ["gemini-3.1-flash-lite"] }
         );
-        const candidate = generatedTopic.replace(/^[\\"«]|[\\"»]$/g, "").trim();
+        const candidate = generatedTopic.replace(/^["«]|["»]$/g, "").trim();
         if (!candidate) {
           lastTopicError = "Gemini generated an empty topic";
           rejectedCandidates.push("(пустой ответ модели " + attempt + ")");
@@ -2300,7 +2300,7 @@ export class ApprovalCoordinator {
               "\\nПопытка " + attempt + ". Выбери принципиально другой предмет и другой сценарий.",
             { task: "topic", maxAttempts: 3, fallbackModels: ["gemini-3.1-flash-lite"] }
           );
-          const candidate = generatedTopic.replace(/^[\\"«]|[\\"»]$/g, "").trim();
+          const candidate = generatedTopic.replace(/^["«]|["»]$/g, "").trim();
           if (!candidate) {
             lastTopicError = "Gemini generated an empty alternative topic";
             rejectedCandidates.push("(пустой ответ модели " + attempt + ")");
