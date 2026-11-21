@@ -900,6 +900,10 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
   }
   const existing = await storage.get(slotKey);
   if (existing?.status === "published") return { ok: true, skipped: true, reason: "slot_already_published" };
+  if (existing?.status === "awaiting_approval") {
+    return { ok: true, pending_approval: true, skipped: true, reason: "slot_waiting_for_user_decision", slot };
+  }
+  if (existing?.status === "rejected") return { ok: true, skipped: true, reason: "slot_rejected", slot };
   if (existing?.status === "started" && Date.now() - Number(existing.started_at_ms || 0) < 10 * 60 * 1000) {
     return { ok: true, skipped: true, reason: "slot_in_progress" };
   }
