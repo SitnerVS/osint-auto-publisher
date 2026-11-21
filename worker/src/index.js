@@ -93,10 +93,10 @@ function isSimilarEditorialTopic(candidate, previousTopics) {
 function editorialTopicModerationFailure(candidate) {
   const title = String(candidate || "").trim();
   if (!title) return "Пустой заголовок";
-  if (/[\\r\\n]/u.test(title)) return "Заголовок содержит несколько строк";
-  if (/https?:\\/\\/|www\\.|#[\\p{L}\\p{N}_]+/iu.test(title)) return "В заголовке есть ссылка или хэштег";
-  if (/^\\s*(?:\\d+[.)]|[-•*])\\s*/u.test(title)) return "Заголовок содержит нумерацию или маркер списка";
-  const words = title.split(/\\s+/u).filter(Boolean);
+  if (/[\r\n]/u.test(title)) return "Заголовок содержит несколько строк";
+  if (/https?:\/\/|www\.|#[\p{L}\p{N}_]+/iu.test(title)) return "В заголовке есть ссылка или хэштег";
+  if (/^\s*(?:\d+[.)]|[-•*])\s*/u.test(title)) return "Заголовок содержит нумерацию или маркер списка";
+  const words = title.split(/\s+/u).filter(Boolean);
   if (words.length < 5 || words.length > 16) return "Нарушена длина заголовка: " + words.length + " слов";
   if (title.length < 25 || title.length > 160) return "Нарушена длина заголовка: " + title.length + " символов";
   return "";
@@ -2207,9 +2207,9 @@ export class ApprovalCoordinator {
       const generatedTopic = await geminiGenerate(
         this.env,
         job.prompt +
-          "\\n\\nТЕМЫ РЕДАКЦИИ И ОТКЛОНЁННЫЕ ВАРИАНТЫ — НЕ ПОВТОРЯТЬ ПО СМЫСЛУ: " +
+          "\n\nТЕМЫ РЕДАКЦИИ И ОТКЛОНЁННЫЕ ВАРИАНТЫ — НЕ ПОВТОРЯТЬ ПО СМЫСЛУ: " +
           JSON.stringify(blockedTopics.slice(-120)) +
-          "\\nПопытка " + attempt + ". Предложи принципиально другой самостоятельный сюжет.",
+          "\nПопытка " + attempt + ". Предложи принципиально другой самостоятельный сюжет.",
         { task: "topic", maxAttempts: 3, fallbackModels: ["gemini-3.1-flash-lite"] }
       );
       const candidate = generatedTopic.replace(/^["«]|["»]$/g, "").trim();
@@ -2254,7 +2254,7 @@ export class ApprovalCoordinator {
           }
 
           current.title = candidate;
-          current.content = "КАТЕГОРИЯ: " + current.category + "\\n\\nТЕМА: " + candidate;
+          current.content = "КАТЕГОРИЯ: " + current.category + "\n\nТЕМА: " + candidate;
           current.stage = "topic";
           current.status = "pending";
           current.approval_id = crypto.randomUUID();
@@ -2294,7 +2294,7 @@ export class ApprovalCoordinator {
       const timestamp = new Date().toISOString();
       const item = {
         id: "material-" + crypto.randomUUID().slice(0, 8),
-        content: "КАТЕГОРИЯ: " + job.category + "\\n\\nТЕМА: " + candidate,
+        content: "КАТЕГОРИЯ: " + job.category + "\n\nТЕМА: " + candidate,
         category: job.category, title: candidate, stage: "topic", status: "pending",
         history: [], created_at: timestamp, updated_at: timestamp, approval_id: crypto.randomUUID()
       };
@@ -2359,10 +2359,10 @@ export class ApprovalCoordinator {
     const rejectedTopics = Array.isArray(item.rejected_topics) ? item.rejected_topics : [];
     const recentTopics = await getRecentEditorialTopics(this.ctx.storage, itemId);
     const prompt =
-      "Ты — выпускающий редактор OSINTNER, профессионального медиа об OSINT, комплаенсе, AML и антифроде.\\n\\n" +
-      "Предложи ОДНУ новую тему взамен отклонённой. Это должен быть другой самостоятельный сюжет, а не перефразирование или сужение прежней темы.\\n\\n" +
-      "КАТЕГОРИЯ: " + (item.category || "OSINT") + "\\n" +
-      "ОТКЛОНЁННЫЕ ТЕМЫ — НЕ ПОВТОРЯТЬ ПО СМЫСЛУ: " + rejectedTopics.join(" | ") + "\\n\\n" +
+      "Ты — выпускающий редактор OSINTNER, профессионального медиа об OSINT, комплаенсе, AML и антифроде.\n\n" +
+      "Предложи ОДНУ новую тему взамен отклонённой. Это должен быть другой самостоятельный сюжет, а не перефразирование или сужение прежней темы.\n\n" +
+      "КАТЕГОРИЯ: " + (item.category || "OSINT") + "\n" +
+      "ОТКЛОНЁННЫЕ ТЕМЫ — НЕ ПОВТОРЯТЬ ПО СМЫСЛУ: " + rejectedTopics.join(" | ") + "\n\n" +
       "Требования: одна конкретная проблема или объект проверки; естественный профессиональный русский язык; 8–14 слов, максимум 16; без канцелярита, искусственных терминов и перечисления нескольких сюжетов. Не выдумывай факты, компании или статистику. Выбери другой предмет и другой сценарий. Верни только один заголовок.";
 
     const jobId = "alternative:" + itemId + ":" + crypto.randomUUID().slice(0, 8);
