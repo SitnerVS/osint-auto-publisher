@@ -3383,22 +3383,60 @@ export class ApprovalCoordinator {
   // ==================================================
 
   async alarm() {
+    const now = Date.now();
     const entries = await this.ctx.storage.list({ prefix: "social:hourly:preview:" });
-    let nextExpiry = 0;
+    let nextAlarmAt = 0;
+
     for (const [key, session] of entries.entries()) {
       if (session?.status !== "awaiting_choice") continue;
       const expiry = Number(session.expires_at || 0);
-      if (expiry && expiry <= Date.now()) {
+      if (expiry && expiry <= now) {
         await this.ctx.storage.put(key, { ...session, status: "expired", expired_at: new Date().toISOString() });
         await telegram(this.env, "sendMessage", {
           chat_id: this.env.TELEGRAM_CHAT_ID,
           text: "Время выбора шутки истекло. Пятёрка автоматически отклонена. Следующая подборка придёт в следующий час."
         });
-      } else if (expiry && (!nextExpiry || expiry < nextExpiry)) {
-        nextExpiry = expiry;
+      } else if (expiry && (!nextAlarmAt || expiry < nextAlarmAt)) {
+        nextAlarmAt = expiry;
       }
     }
+
+    // Durable topic generation survives request/cron time limits. Each alarm performs
+    // one generation + moderation attempt, then persists the next retry time.
+    const topicJobs = await this.ctx.storage.list({ prefix: "topic-generation:" });
+    const pendingJobs = [...topicJobs.entries()]
+      .filter(([, job]) => job?.status === "pending")
+      .sort((a, b) => Number(a[1].next_attempt_at || 0) - Number(b[1].next_attempt_at || 0));
+
+    if (pendingJobs.length) {
+      const [jobKey, job] = pendingJobs[0];
+      const dueAt = Number(job.next_attempt_at || 0);
+      if (!dueAt || dueAt <= now) {
+        await this.processTopicGenerationJob(jobKey);
+      } else if (!nextAlarmAt || dueAt < nextAlarmAt) {
+        nextAlarmAt = dueAt;
+      }
+    }
+
     await this.flushOutbox();
-    if (nextExpiry) await this.ctx.storage.setAlarm(nextExpiry);
-  }
-}
+
+    const remainingJobs = await this.ctx.storage.list({ prefix: "topic-generation:" });
+    const nextPendingJob = [...remainingJobs.values()]
+      .filter(job => job?.status === "pending")
+      .reduce((earliest, job) => {
+        const dueAt = Number(job.next_attempt_at || 0) || (Date.now() + 1000);
+        return !earliest || dueAt < earliest ? dueAt : earliest;
+      }, 0);
+
+    if (nextPendingJob && (!nextAlarmAt || nextPendingJob < nextAlarmAt)) {
+      nextAlarmAt = Math.max(Date.now() + 1000, nextPendingJob);
+    }
+
+    const remainingOutbox = await this.ctx.storage.list({ prefix: "outbox:" });
+    if (remainingOutbox.size > 0) {
+      const outboxRetryAt = Date.now() + OUTBOX_RETRY_MS;
+      if (!nextAlarmAt || outboxRetryAt < nextAlarmAt) nextAlarmAt = outboxRetryAt;
+    }
+
+    if (nextAlarmAt) await this.ctx.storage.setAlarm(nextAlarmAt);
+  }}
