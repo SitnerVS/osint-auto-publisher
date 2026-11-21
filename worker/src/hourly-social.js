@@ -811,6 +811,42 @@ const VERIFIED_HOURLY_QUOTES = [
   { quote: "Молчи, скрывайся и таи и чувства и мечты свои.", author: "Фёдор Тютчев", source_title: "Silentium! (1830)", source_url: "https://ru.wikisource.org/wiki/Silentium!_(Тютчев)/ДО" }
 ];
 
+const HOURLY_CHILDHOOD_NOSTALGIA = [
+  "Летом мы уходили гулять после завтрака и возвращались, когда во дворе зажигались фонари. Домой звали не сообщением, а голосом из открытого окна.",
+  "У каждого двора была своя компания, свои правила и своё место встречи. Стоило выйти из подъезда — и уже находилось, чем заняться до самого вечера.",
+  "Кассету приходилось перематывать карандашом, если плеер начинал капризничать. И почему-то это казалось совершенно обычной частью прослушивания любимой музыки.",
+  "Перед началом мультфильмов можно было успеть сделать всё на свете — лишь бы не пропустить заставку. А если опоздал, приходилось ждать следующего показа.",
+  "Фишки, вкладыши и фантики иногда ценились почти как настоящая валюта. Обмен во дворе требовал переговоров, аргументов и умения вовремя остановиться.",
+  "В гостях у друзей время шло незаметно: настольные игры, конструктор, мультики и бесконечные разговоры. Самым сложным было услышать, что пора домой.",
+  "Новый школьный пенал или яркая ручка могли поднять настроение на целую неделю. Мы умели радоваться маленьким обновкам без особого повода.",
+  "На каникулах день казался длиннее, а планов было меньше. Главное — найти друзей во дворе, а дальше приключения придумывались сами.",
+  "Когда во дворе начиналась игра, команды собирались за пару минут. Капитанов выбирали быстро, правила обсуждали громко, а спорили так, будто шёл финал чемпионата.",
+  "Запах свежих тетрадей и учебников означал начало нового школьного года. Даже если учиться не очень хотелось, выбирать обложки было приятно.",
+  "Телефонный разговор с другом иногда начинался с вопроса: «А он дома?» И дальше трубку передавали по цепочке, пока нужный человек не появлялся.",
+  "Видеокассету с любимым фильмом могли пересматривать столько раз, что отдельные сцены запоминались наизусть. И всё равно хотелось включить её ещё раз.",
+  "Зимой санки, снежки и ледяные горки занимали весь свободный день. Возвращались домой с красными щеками и варежками, которые никак не хотели высыхать.",
+  "Перед поездкой к бабушке собирали целую маленькую экспедицию: любимые игрушки, книжку и что-нибудь вкусное в дорогу. Само ожидание поездки уже было событием.",
+  "Во дворе всегда находился кто-то, у кого была новая игрушка или необычная находка. Её рассматривали всем кругом, а потом начинались переговоры об обмене.",
+  "После школы хотелось скорее оставить портфель дома и выбежать на улицу. Домашние задания могли подождать хотя бы ещё один час.",
+  "Утренние выходные начинались с телевизора и неспешного завтрака. Никто никуда не торопился, и впереди был целый день.",
+  "Бумажные записки передавали через весь класс, стараясь не попасться учителю. Иногда важнее самого сообщения было то, как ловко оно добиралось до адресата.",
+  "Покупка мороженого по дороге домой превращалась в маленький праздник. Особенно если удавалось выбрать именно тот вкус, который давно хотелось.",
+  "В детстве дорога до знакомого места могла казаться целым путешествием. По пути обязательно находилось что-то интересное, что взрослые обычно проходили мимо.",
+  "Собираясь играть, мы редко договаривались заранее о подробностях. Достаточно было встретиться во дворе — и у каждого уже находилась идея.",
+  "Любимую книгу или журнал хотелось перечитывать и показывать друзьям. Иногда одна картинка могла надолго стать темой разговоров.",
+  "Вечером двор постепенно пустел, но никто не хотел расходиться первым. Ещё один раунд, ещё одна история — и только потом пора домой.",
+  "Самые яркие воспоминания детства часто состоят из простых вещей: знакомого двора, голосов друзей и длинного летнего вечера. Тогда мы не думали, что однажды будем так тепло это вспоминать."
+];
+
+function selectChildhoodNostalgia(history, scheduledAt) {
+  const start = Math.abs(Math.floor(Number(scheduledAt || Date.now()) / 3600000)) % HOURLY_CHILDHOOD_NOSTALGIA.length;
+  for (let offset = 0; offset < HOURLY_CHILDHOOD_NOSTALGIA.length; offset++) {
+    const text = HOURLY_CHILDHOOD_NOSTALGIA[(start + offset) % HOURLY_CHILDHOOD_NOSTALGIA.length];
+    if (!isDuplicateHourlyStory(text, [], history)) return text;
+  }
+  return HOURLY_CHILDHOOD_NOSTALGIA[start];
+}
+
 function selectVerifiedHourlyQuote(history, scheduledAt) {
   const start = Math.abs(Math.floor(Number(scheduledAt || Date.now()) / 3600000)) % VERIFIED_HOURLY_QUOTES.length;
   for (let offset = 0; offset < VERIFIED_HOURLY_QUOTES.length; offset++) {
@@ -910,18 +946,28 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           }
         }
       } catch (generationError) {
-        if (specialCategory !== "Цитаты великих людей") throw generationError;
-        const fallback = selectVerifiedHourlyQuote(specialHistory, scheduledAt);
-        if (!fallback) throw new Error("Gemini недоступен из-за квоты, а все резервные проверенные цитаты уже использованы недавно. " + String(generationError.message || generationError).slice(0, 250));
-        specialText = fallback.text;
-        specialSource = fallback;
-        console.warn("Gemini unavailable; selected pre-verified quote fallback:", {
-          source: fallback.source_title, author: fallback.author,
-          reason: String(generationError.message || generationError).slice(0, 250)
-        });
+        if (specialCategory === "Цитаты великих людей") {
+          const fallback = selectVerifiedHourlyQuote(specialHistory, scheduledAt);
+          if (!fallback) throw new Error("Все резервные проверенные цитаты уже использованы недавно. " + String(generationError.message || generationError).slice(0, 250));
+          specialText = fallback.text;
+          specialSource = fallback;
+          console.warn("Gemini unavailable; selected pre-verified quote fallback:", {
+            source: fallback.source_title, author: fallback.author,
+            reason: String(generationError.message || generationError).slice(0, 250)
+          });
+        } else {
+          specialText = selectChildhoodNostalgia(specialHistory, scheduledAt);
+          console.warn("Gemini unavailable; selected original childhood nostalgia fallback:", {
+            reason: String(generationError.message || generationError).slice(0, 250)
+          });
+        }
       }
       if (isDuplicateHourlyStory(specialText, [], specialHistory)) {
-        throw new Error("Обнаружен повтор недавней публикации в этой рубрике");
+        if (specialCategory === "Тёплые воспоминания о детстве") {
+          specialText = selectChildhoodNostalgia(specialHistory, scheduledAt);
+        } else {
+          throw new Error("Обнаружен повтор недавней публикации в этой рубрике");
+        }
       }
       const published = await publishThreads(env, token, specialText);
       const at = new Date().toISOString();
