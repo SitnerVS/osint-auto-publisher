@@ -90,6 +90,18 @@ function isSimilarEditorialTopic(candidate, previousTopics) {
   return (previousTopics || []).some(previous => editorialTopicSimilarity(candidate, previous) >= 0.58);
 }
 
+function editorialTopicModerationFailure(candidate) {
+  const title = String(candidate || "").trim();
+  if (!title) return "Пустой заголовок";
+  if (/[\\r\\n]/u.test(title)) return "Заголовок содержит несколько строк";
+  if (/https?:\\/\\/|www\\.|#[\\p{L}\\p{N}_]+/iu.test(title)) return "В заголовке есть ссылка или хэштег";
+  if (/^\\s*(?:\\d+[.)]|[-•*])\\s*/u.test(title)) return "Заголовок содержит нумерацию или маркер списка";
+  const words = title.split(/\\s+/u).filter(Boolean);
+  if (words.length < 5 || words.length > 16) return "Нарушена длина заголовка: " + words.length + " слов";
+  if (title.length < 25 || title.length > 160) return "Нарушена длина заголовка: " + title.length + " символов";
+  return "";
+}
+
 async function isSemanticDuplicateEditorialTopic(env, candidate, previousTopics) {
   const comparisonSet = [...new Set((previousTopics || []).map(value => String(value || "").trim()).filter(Boolean))].slice(0, 80);
   if (!comparisonSet.length) return false;
@@ -2184,8 +2196,10 @@ export class ApprovalCoordinator {
     if (Number(job.next_attempt_at || 0) > now) return Number(job.next_attempt_at);
 
     const attempt = Number(job.attempts || 0) + 1;
+    const latestTopics = await getRecentEditorialTopics(this.ctx.storage, job.item_id || "");
     const blockedTopics = [...new Set([
       ...(Array.isArray(job.recent_topics) ? job.recent_topics : []),
+      ...latestTopics,
       ...(Array.isArray(job.rejected_candidates) ? job.rejected_candidates : [])
     ].filter(Boolean))];
 
@@ -2200,10 +2214,11 @@ export class ApprovalCoordinator {
       );
       const candidate = generatedTopic.replace(/^["«]|["»]$/g, "").trim();
 
-      if (!candidate || isSimilarEditorialTopic(candidate, blockedTopics)) {
+      const moderationFailure = editorialTopicModerationFailure(candidate);
+      if (!candidate || moderationFailure || isSimilarEditorialTopic(candidate, blockedTopics)) {
         job.attempts = attempt;
         job.rejected_candidates = [...(job.rejected_candidates || []), candidate || "(пустой ответ модели " + attempt + ")"].slice(-120);
-        job.last_error = candidate ? "Тема повторяет ранее предложенную" : "Gemini generated an empty topic";
+        job.last_error = moderationFailure || (candidate ? "Тема повторяет ранее предложенную" : "Gemini generated an empty topic");
         job.next_attempt_at = Date.now() + 1000;
         await this.ctx.storage.put(jobKey, job);
         await this.ctx.storage.setAlarm(job.next_attempt_at);
