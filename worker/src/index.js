@@ -3439,4 +3439,5 @@ export class ApprovalCoordinator {
     }
 
     if (nextAlarmAt) await this.ctx.storage.setAlarm(nextAlarmAt);
-  }}
+  }
+}
