@@ -2128,29 +2128,66 @@ export class ApprovalCoordinator {
       `Верни только один заголовок на русском языке, без кавычек, пояснений и нумерации.`;
 
     const recentTopics = await getRecentEditorialTopics(this.ctx.storage);
-    const historyInstruction = "\\n\\nПОСЛЕДНИЕ ТЕМЫ РЕДАКЦИИ — НЕ ПОВТОРЯТЬ И НЕ ПЕРЕФРАЗИРОВАТЬ: " +
-      JSON.stringify(recentTopics.slice(0, 100)) +
-      "\\nНужен другой предмет, сценарий или контрольная задача, а не новый заголовок для прежнего сюжета.";
+    const rejectedCandidates = [];
     let title = "";
     let lastTopicError = "";
-    for (let attempt = 1; attempt <= 5; attempt++) {
-      const generatedTopic = await geminiGenerate(
-        this.env,
-        prompt + historyInstruction + "\\nПопытка " + attempt + " из 5. Если тема похожа на список выше, придумай принципиально другой сюжет.",
-        { task: "topic", maxAttempts: 2, fallbackModels: ["gemini-3.1-flash-lite"] }
-      );
-      const candidate = generatedTopic.replace(/^[\"«]|[\"»]$/g, "").trim();
-      if (!candidate) { lastTopicError = "Gemini generated an empty topic"; continue; }
-      if (isSimilarEditorialTopic(candidate, recentTopics) ||
-          await isSemanticDuplicateEditorialTopic(this.env, candidate, recentTopics)) {
-        lastTopicError = "Тема повторяет или слишком близка по смыслу к ранее предложенной: " + candidate;
-        console.warn("Scheduled editorial topic rejected as duplicate:", { category, attempt, candidate });
-        continue;
+    let attempt = 0;
+    let transientFailures = 0;
+
+    // A scheduled slot stays active until a genuinely new topic passes both checks.
+    // Duplicate candidates are excluded from the next prompt; temporary API errors back off and retry.
+    while (!title) {
+      attempt++;
+      const blockedTopics = [...new Set([...recentTopics, ...rejectedCandidates].filter(Boolean))];
+      const historyInstruction =
+        "\\n\\nТЕМЫ РЕДАКЦИИ И ОТКЛОНЁННЫЕ ВАРИАНТЫ — НЕ ПОВТОРЯТЬ ПО СМЫСЛУ: " +
+        JSON.stringify(blockedTopics.slice(-120)) +
+        "\\nНужен принципиально другой предмет, объект или сценарий, а не перефразирование.";
+      try {
+        const generatedTopic = await geminiGenerate(
+          this.env,
+          prompt + historyInstruction + "\\nПопытка " + attempt + ". Предложи новый самостоятельный сюжет, не повторяющий ни одну тему из списка.",
+          { task: "topic", maxAttempts: 3, fallbackModels: ["gemini-3.1-flash-lite"] }
+        );
+        const candidate = generatedTopic.replace(/^[\\"«]|[\\"»]$/g, "").trim();
+        if (!candidate) {
+          lastTopicError = "Gemini generated an empty topic";
+          rejectedCandidates.push("(пустой ответ модели " + attempt + ")");
+          continue;
+        }
+
+        const duplicateByWords = isSimilarEditorialTopic(candidate, blockedTopics);
+        const duplicateByMeaning = duplicateByWords
+          ? true
+          : await isSemanticDuplicateEditorialTopic(this.env, candidate, blockedTopics);
+
+        if (duplicateByWords || duplicateByMeaning) {
+          lastTopicError = "Тема повторяет или слишком близка по смыслу: " + candidate;
+          rejectedCandidates.push(candidate);
+          console.warn("Scheduled editorial topic rejected; generating another:", {
+            category, attempt, candidate, rejected_count: rejectedCandidates.length
+          });
+          continue;
+        }
+
+        title = candidate;
+        console.log("Scheduled editorial topic passed uniqueness checks:", { category, attempt, title });
+      } catch (error) {
+        transientFailures++;
+        lastTopicError = String(error.message || error);
+        const delayMs = Math.min(60_000, 2_000 * (2 ** Math.min(transientFailures - 1, 5)));
+        console.error("Scheduled topic generation/check failed; retrying without abandoning slot:", {
+          category, attempt, transientFailures, delayMs, error: lastTopicError.slice(0, 400)
+        });
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
-      title = candidate;
-      break;
+
+      if (attempt % 10 === 0 && !title) {
+        console.warn("Scheduled topic generation is still running; slot remains active:", {
+          category, attempt, rejected_count: rejectedCandidates.length, last_error: lastTopicError.slice(0, 300)
+        });
+      }
     }
-    if (!title) throw new Error("Не удалось подобрать новую тему после 5 попыток. " + lastTopicError);
 
     const timestamp = new Date().toISOString();
 
@@ -2246,27 +2283,62 @@ export class ApprovalCoordinator {
     try {
       const recentTopics = await getRecentEditorialTopics(this.ctx.storage, itemId);
       const blockedTopics = [...new Set([item.title, ...recentTopics, ...rejectedTopics].filter(Boolean))];
+      const rejectedCandidates = [];
       let title = "";
       let lastTopicError = "";
-      for (let attempt = 1; attempt <= 5; attempt++) {
-        const generatedTopic = await geminiGenerate(
-          this.env,
-          prompt + "\\n\\nТЕМЫ, УЖЕ ИСПОЛЬЗОВАННЫЕ РЕДАКЦИЕЙ — НЕ ПОВТОРЯТЬ: " + JSON.stringify(blockedTopics.slice(0, 100)) +
-            "\\nПопытка " + attempt + " из 5. Выбери другой предмет и другой сценарий.",
-          { task: "topic" }
-        );
-        const candidate = generatedTopic.replace(/^[\"«]|[\"»]$/g, "").trim();
-        if (!candidate) { lastTopicError = "Gemini generated an empty alternative topic"; continue; }
-        if (isSimilarEditorialTopic(candidate, blockedTopics) ||
-            await isSemanticDuplicateEditorialTopic(this.env, candidate, blockedTopics)) {
-          lastTopicError = "Повтор темы по смыслу: " + candidate;
-          console.warn("Alternative editorial topic rejected as semantic duplicate:", { itemId, attempt, candidate });
-          continue;
+      let attempt = 0;
+      let transientFailures = 0;
+
+      // Rejected alternatives are added to the exclusion list; temporary API failures are retried.
+      while (!title) {
+        attempt++;
+        const currentBlockedTopics = [...new Set([...blockedTopics, ...rejectedCandidates])];
+        try {
+          const generatedTopic = await geminiGenerate(
+            this.env,
+            prompt + "\\n\\nТЕМЫ, УЖЕ ИСПОЛЬЗОВАННЫЕ ИЛИ ОТКЛОНЁННЫЕ — НЕ ПОВТОРЯТЬ: " + JSON.stringify(currentBlockedTopics.slice(-120)) +
+              "\\nПопытка " + attempt + ". Выбери принципиально другой предмет и другой сценарий.",
+            { task: "topic", maxAttempts: 3, fallbackModels: ["gemini-3.1-flash-lite"] }
+          );
+          const candidate = generatedTopic.replace(/^[\\"«]|[\\"»]$/g, "").trim();
+          if (!candidate) {
+            lastTopicError = "Gemini generated an empty alternative topic";
+            rejectedCandidates.push("(пустой ответ модели " + attempt + ")");
+            continue;
+          }
+
+          const duplicateByWords = isSimilarEditorialTopic(candidate, currentBlockedTopics);
+          const duplicateByMeaning = duplicateByWords
+            ? true
+            : await isSemanticDuplicateEditorialTopic(this.env, candidate, currentBlockedTopics);
+
+          if (duplicateByWords || duplicateByMeaning) {
+            lastTopicError = "Повтор темы по смыслу: " + candidate;
+            rejectedCandidates.push(candidate);
+            console.warn("Alternative editorial topic rejected; generating another:", {
+              itemId, attempt, candidate, rejected_count: rejectedCandidates.length
+            });
+            continue;
+          }
+
+          title = candidate;
+          console.log("Alternative editorial topic passed uniqueness checks:", { itemId, attempt, title });
+        } catch (error) {
+          transientFailures++;
+          lastTopicError = String(error.message || error);
+          const delayMs = Math.min(60_000, 2_000 * (2 ** Math.min(transientFailures - 1, 5)));
+          console.error("Alternative topic generation/check failed; retrying:", {
+            itemId, attempt, transientFailures, delayMs, error: lastTopicError.slice(0, 400)
+          });
+          await new Promise(resolve => setTimeout(resolve, delayMs));
         }
-        title = candidate;
-        break;
+
+        if (attempt % 10 === 0 && !title) {
+          console.warn("Alternative topic generation is still running:", {
+            itemId, attempt, rejected_count: rejectedCandidates.length, last_error: lastTopicError.slice(0, 300)
+          });
+        }
       }
-      if (!title) throw new Error("Не удалось подобрать новую тему после 5 попыток. " + lastTopicError);
 
       const timestamp = new Date().toISOString();
 
