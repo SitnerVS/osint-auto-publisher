@@ -2079,18 +2079,30 @@ export class ApprovalCoordinator {
     }
 
     const scheduleKey = String(payload.schedule_key || "");
+    const jobId = scheduleKey || ("manual:" + crypto.randomUUID());
+    const jobKey = "topic-generation:" + jobId;
+
     if (scheduleKey) {
       const scheduleStorageKey = "schedule-run:" + scheduleKey;
       const existingSchedule = await this.ctx.storage.get(scheduleStorageKey);
+      const existingJobId = existingSchedule?.job_id || jobId;
+      const existingJob = await this.ctx.storage.get("topic-generation:" + existingJobId);
       const startedAt = Date.parse(existingSchedule?.started_at || "");
       const staleStarted = existingSchedule?.status === "started" &&
         (!Number.isFinite(startedAt) || Date.now() - startedAt > 12 * 60 * 1000);
-      if (existingSchedule?.status === "created" ||
-          (existingSchedule?.status === "started" && !staleStarted)) {
+
+      if (existingSchedule?.status === "created") {
+        return { ok: true, duplicate: true, item_id: existingSchedule.item_id || "" };
+      }
+      if (existingJob?.status === "pending") {
+        await this.ctx.storage.setAlarm(Date.now() + 1000);
+        return { ok: true, status: "generating", duplicate: true, job_id: existingJobId };
+      }
+      if (existingSchedule?.status === "started" && !staleStarted) {
         return { ok: true, duplicate: true, item_id: existingSchedule.item_id || "" };
       }
       await this.ctx.storage.put(scheduleStorageKey, {
-        status: "started", started_at: new Date().toISOString(),
+        status: "started", job_id: jobId, started_at: new Date().toISOString(),
         attempts: Number(existingSchedule?.attempts || 0) + 1
       });
     }
@@ -2128,128 +2140,143 @@ export class ApprovalCoordinator {
       `Верни только один заголовок на русском языке, без кавычек, пояснений и нумерации.`;
 
     const recentTopics = await getRecentEditorialTopics(this.ctx.storage);
-    const rejectedCandidates = [];
-    let title = "";
-    let lastTopicError = "";
-    let attempt = 0;
-    let transientFailures = 0;
-
-    // A scheduled slot stays active until a genuinely new topic passes both checks.
-    // Duplicate candidates are excluded from the next prompt; temporary API errors back off and retry.
-    while (!title) {
-      attempt++;
-      const blockedTopics = [...new Set([...recentTopics, ...rejectedCandidates].filter(Boolean))];
-      const historyInstruction =
-        "\\n\\nТЕМЫ РЕДАКЦИИ И ОТКЛОНЁННЫЕ ВАРИАНТЫ — НЕ ПОВТОРЯТЬ ПО СМЫСЛУ: " +
-        JSON.stringify(blockedTopics.slice(-120)) +
-        "\\nНужен принципиально другой предмет, объект или сценарий, а не перефразирование.";
-      try {
-        const generatedTopic = await geminiGenerate(
-          this.env,
-          prompt + historyInstruction + "\\nПопытка " + attempt + ". Предложи новый самостоятельный сюжет, не повторяющий ни одну тему из списка.",
-          { task: "topic", maxAttempts: 3, fallbackModels: ["gemini-3.1-flash-lite"] }
-        );
-        const candidate = generatedTopic.replace(/^["«]|["»]$/g, "").trim();
-        if (!candidate) {
-          lastTopicError = "Gemini generated an empty topic";
-          rejectedCandidates.push("(пустой ответ модели " + attempt + ")");
-          continue;
-        }
-
-        const duplicateByWords = isSimilarEditorialTopic(candidate, blockedTopics);
-        const duplicateByMeaning = duplicateByWords
-          ? true
-          : await isSemanticDuplicateEditorialTopic(this.env, candidate, blockedTopics);
-
-        if (duplicateByWords || duplicateByMeaning) {
-          lastTopicError = "Тема повторяет или слишком близка по смыслу: " + candidate;
-          rejectedCandidates.push(candidate);
-          console.warn("Scheduled editorial topic rejected; generating another:", {
-            category, attempt, candidate, rejected_count: rejectedCandidates.length
-          });
-          continue;
-        }
-
-        title = candidate;
-        console.log("Scheduled editorial topic passed uniqueness checks:", { category, attempt, title });
-      } catch (error) {
-        transientFailures++;
-        lastTopicError = String(error.message || error);
-        const delayMs = Math.min(60_000, 2_000 * (2 ** Math.min(transientFailures - 1, 5)));
-        console.error("Scheduled topic generation/check failed; retrying without abandoning slot:", {
-          category, attempt, transientFailures, delayMs, error: lastTopicError.slice(0, 400)
-        });
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-      }
-
-      if (attempt % 10 === 0 && !title) {
-        console.warn("Scheduled topic generation is still running; slot remains active:", {
-          category, attempt, rejected_count: rejectedCandidates.length, last_error: lastTopicError.slice(0, 300)
-        });
-      }
-    }
-
-    const timestamp = new Date().toISOString();
-
-    const item = {
-      id: `material-${crypto.randomUUID().slice(0, 8)}`,
-      content: `КАТЕГОРИЯ: ${category}\n\nТЕМА: ${title}`,
+    const job = {
+      id: jobId,
+      schedule_key: scheduleKey,
       category,
-      title,
-      stage: "topic",
+      prompt,
+      recent_topics: recentTopics.slice(0, 120),
+      rejected_candidates: [],
+      attempts: 0,
+      transient_failures: 0,
+      user_id: userId,
+      expected_chat_id: expectedChatId,
+      rotation_key: rotationKey,
+      rotation_index: index,
+      rotation_length: topics.length,
       status: "pending",
-      history: [],
-      created_at: timestamp,
-      updated_at: timestamp,
-      approval_id: crypto.randomUUID()
+      created_at: new Date().toISOString(),
+      next_attempt_at: Date.now()
     };
 
+    await this.ctx.storage.put(jobKey, job);
     if (scheduleKey) {
       await this.ctx.storage.put("schedule-run:" + scheduleKey, {
-        status: "created",
-        item_id: item.id,
-        created_at: timestamp
+        status: "started", job_id: jobId, started_at: new Date().toISOString(),
+        attempts: Number((await this.ctx.storage.get("schedule-run:" + scheduleKey))?.attempts || 1)
       });
     }
+    await this.ctx.storage.setAlarm(Date.now() + 1000);
 
-    await this.ctx.storage.transaction(async (txn) => {
-      await txn.put(`item:${item.id}`, item);
-      await txn.put("editorial:topic_history",
-        [...(await txn.get("editorial:topic_history") || []), { title, category, created_at: timestamp }].slice(-200)
-      );
-
-      await txn.put(
-        rotationKey,
-        (index + 1) % topics.length
-      );
-
-      await this.addEvent(txn, {
-        item_id: item.id,
-        stage: "topic",
-        action: "ai_topic_generated",
-        category,
-        user_id: userId
-      });
-
-      await this.enqueue(
-        txn,
-        "sendMessage",
-        approvalMessage(item, expectedChatId)
-      );
+    console.log("Editorial topic generation queued for durable processing:", {
+      category, job_id: jobId, schedule_key: scheduleKey || null
     });
-
-    return {
-      ok: true,
-      status: "pending",
-      item_id: item.id,
-      category,
-      title
-    };
+    return { ok: true, status: "generating", job_id: jobId, category };
   }
 
-  // ==================================================
-  // ALTERNATIVE TOPIC ON REVISION
-  // ==================================================
+  async processTopicGenerationJob(jobKey) {
+    const job = await this.ctx.storage.get(jobKey);
+    if (!job || job.status !== "pending") return null;
+
+    const now = Date.now();
+    if (Number(job.next_attempt_at || 0) > now) return Number(job.next_attempt_at);
+
+    const attempt = Number(job.attempts || 0) + 1;
+    const blockedTopics = [...new Set([
+      ...(Array.isArray(job.recent_topics) ? job.recent_topics : []),
+      ...(Array.isArray(job.rejected_candidates) ? job.rejected_candidates : [])
+    ].filter(Boolean))];
+
+    try {
+      const generatedTopic = await geminiGenerate(
+        this.env,
+        job.prompt +
+          "\\n\\nТЕМЫ РЕДАКЦИИ И ОТКЛОНЁННЫЕ ВАРИАНТЫ — НЕ ПОВТОРЯТЬ ПО СМЫСЛУ: " +
+          JSON.stringify(blockedTopics.slice(-120)) +
+          "\\nПопытка " + attempt + ". Предложи принципиально другой самостоятельный сюжет.",
+        { task: "topic", maxAttempts: 3, fallbackModels: ["gemini-3.1-flash-lite"] }
+      );
+      const candidate = generatedTopic.replace(/^["«]|["»]$/g, "").trim();
+
+      if (!candidate || isSimilarEditorialTopic(candidate, blockedTopics)) {
+        job.attempts = attempt;
+        job.rejected_candidates = [...(job.rejected_candidates || []), candidate || "(пустой ответ модели " + attempt + ")"].slice(-120);
+        job.last_error = candidate ? "Тема повторяет ранее предложенную" : "Gemini generated an empty topic";
+        job.next_attempt_at = Date.now() + 1000;
+        await this.ctx.storage.put(jobKey, job);
+        await this.ctx.storage.setAlarm(job.next_attempt_at);
+        console.warn("Durable topic candidate rejected; retry scheduled:", {
+          category: job.category, job_id: job.id, attempt, rejected_count: job.rejected_candidates.length
+        });
+        return job.next_attempt_at;
+      }
+
+      const duplicateByMeaning = await isSemanticDuplicateEditorialTopic(this.env, candidate, blockedTopics);
+      if (duplicateByMeaning) {
+        job.attempts = attempt;
+        job.rejected_candidates = [...(job.rejected_candidates || []), candidate].slice(-120);
+        job.last_error = "Тема повторяет или слишком близка по смыслу: " + candidate;
+        job.next_attempt_at = Date.now() + 1000;
+        await this.ctx.storage.put(jobKey, job);
+        await this.ctx.storage.setAlarm(job.next_attempt_at);
+        console.warn("Durable semantic duplicate rejected; retry scheduled:", {
+          category: job.category, job_id: job.id, attempt, rejected_count: job.rejected_candidates.length
+        });
+        return job.next_attempt_at;
+      }
+
+      const timestamp = new Date().toISOString();
+      const item = {
+        id: "material-" + crypto.randomUUID().slice(0, 8),
+        content: "КАТЕГОРИЯ: " + job.category + "\\n\\nТЕМА: " + candidate,
+        category: job.category, title: candidate, stage: "topic", status: "pending",
+        history: [], created_at: timestamp, updated_at: timestamp, approval_id: crypto.randomUUID()
+      };
+
+      await this.ctx.storage.transaction(async (txn) => {
+        await txn.put("item:" + item.id, item);
+        await txn.put("editorial:topic_history",
+          [...(await txn.get("editorial:topic_history") || []), {
+            title: candidate, category: job.category, created_at: timestamp
+          }].slice(-200)
+        );
+        await txn.put(job.rotation_key, (Number(job.rotation_index || 0) + 1) % Number(job.rotation_length || 1));
+        await this.addEvent(txn, {
+          item_id: item.id, stage: "topic", action: "ai_topic_generated",
+          category: job.category, user_id: job.user_id
+        });
+        await this.enqueue(txn, "sendMessage", approvalMessage(item, job.expected_chat_id));
+        if (job.schedule_key) {
+          await txn.put("schedule-run:" + job.schedule_key, {
+            status: "created", item_id: item.id, job_id: job.id, created_at: timestamp
+          });
+        }
+        await txn.put(jobKey, {
+          ...job, status: "completed", item_id: item.id, title: candidate,
+          attempts: attempt, completed_at: timestamp, next_attempt_at: 0
+        });
+      });
+
+      console.log("Durable editorial topic generation completed:", {
+        category: job.category, job_id: job.id, attempt, item_id: item.id, title: candidate
+      });
+      await this.flushOutbox();
+      return null;
+    } catch (error) {
+      const failures = Number(job.transient_failures || 0) + 1;
+      const delayMs = Math.min(5 * 60_000, 2_000 * (2 ** Math.min(failures - 1, 8)));
+      job.attempts = attempt;
+      job.transient_failures = failures;
+      job.last_error = String(error.message || error).slice(0, 700);
+      job.next_attempt_at = Date.now() + delayMs;
+      await this.ctx.storage.put(jobKey, job);
+      await this.ctx.storage.setAlarm(job.next_attempt_at);
+      console.error("Durable editorial topic generation/check failed; retry persisted:", {
+        category: job.category, job_id: job.id, attempt, failures, delay_ms: delayMs, error: job.last_error
+      });
+      return job.next_attempt_at;
+    }
+  }
 
   async generateAlternativeTopic(itemId) {
     const itemKey = `item:${itemId}`;
