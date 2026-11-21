@@ -1381,6 +1381,21 @@ export default {
             } else if (result.failed) {
               await telegram(env, "sendMessage", { chat_id: callbackChatId, text: "Публикация не выполнена. Повторно нажимать вариант не нужно.\n" + String(result.error || "Проверь Threads вручную.").slice(0, 600) });
             }
+          } else if (data.startsWith("hourly_review:")) {
+            const parts = data.split(":");
+            const action = parts[1] === "approve" ? "approve" : "reject";
+            const slot = parts.slice(2).join(":");
+            const result = await callCoordinator(env, "/hourly-auto-publish", {
+              action, slot, user_id: callbackUserId, chat_id: callbackChatId
+            });
+            await telegram(env, "editMessageText", {
+              chat_id: callbackChatId, message_id: callback.message.message_id,
+              text: result.published
+                ? "СОГЛАСОВАНО И ОПУБЛИКОВАНО В THREADS\n\n" + result.text + (result.permalink ? "\n\n" + result.permalink : "")
+                : result.rejected
+                  ? "ПОСТ ОТКЛОНЁН. Публикация отменена."
+                  : "РЕШЕНИЕ НЕ ВЫПОЛНЕНО\n" + String(result.error || "Неизвестная ошибка")
+            });
           } else if (data.startsWith("hourly:publish:")) {
             const parts = data.split(":");
             const result = await callCoordinator(env, "/hourly-select", {
