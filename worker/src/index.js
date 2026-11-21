@@ -2227,6 +2227,55 @@ export class ApprovalCoordinator {
         return job.next_attempt_at;
       }
 
+      if (job.mode === "alternative") {
+        const timestamp = new Date().toISOString();
+        let applied = false;
+        await this.ctx.storage.transaction(async (txn) => {
+          const itemKey = "item:" + job.item_id;
+          const current = await txn.get(itemKey);
+          if (!current || current.status !== "generating_alternative_topic") {
+            await txn.put(jobKey, { ...job, status: "cancelled", completed_at: timestamp });
+            return;
+          }
+
+          current.title = candidate;
+          current.content = "КАТЕГОРИЯ: " + current.category + "\\n\\nТЕМА: " + candidate;
+          current.stage = "topic";
+          current.status = "pending";
+          current.approval_id = crypto.randomUUID();
+          current.updated_at = timestamp;
+          current.alternative_topic_count = Number(current.alternative_topic_count || 0) + 1;
+          await txn.put("editorial:topic_history",
+            [...(await txn.get("editorial:topic_history") || []), {
+              title: candidate, category: current.category, created_at: timestamp
+            }].slice(-200)
+          );
+          await txn.put(itemKey, current);
+          await this.addEvent(txn, {
+            item_id: current.id, stage: "topic", action: "ai_alternative_topic_generated",
+            category: current.category, title: candidate, user_id: job.user_id
+          });
+          await this.enqueue(txn, "sendMessage", {
+            chat_id: job.expected_chat_id,
+            text: "Предлагаю другой вариант темы. Проверь его:"
+          });
+          await this.enqueue(txn, "sendMessage", approvalMessage(current, job.expected_chat_id));
+          await txn.put(jobKey, {
+            ...job, status: "completed", item_id: current.id, title: candidate,
+            attempts: attempt, completed_at: timestamp, next_attempt_at: 0
+          });
+          applied = true;
+        });
+
+        if (applied) {
+          console.log("Durable alternative topic generation completed:", {
+            item_id: job.item_id, job_id: job.id, attempt, title: candidate
+          });
+          await this.flushOutbox();
+        }
+        return null;
+      }
+
       const timestamp = new Date().toISOString();
       const item = {
         id: "material-" + crypto.randomUUID().slice(0, 8),
@@ -2265,6 +2314,11 @@ export class ApprovalCoordinator {
       await this.flushOutbox();
       return null;
     } catch (error) {
+      const persistedJob = await this.ctx.storage.get(jobKey);
+      if (persistedJob?.status === "completed" || persistedJob?.status === "cancelled") {
+        await this.flushOutbox();
+        return null;
+      }
       const failures = Number(job.transient_failures || 0) + 1;
       const delayMs = Math.min(5 * 60_000, 2_000 * (2 ** Math.min(failures - 1, 8)));
       job.attempts = attempt;
@@ -2281,172 +2335,47 @@ export class ApprovalCoordinator {
   }
 
   async generateAlternativeTopic(itemId) {
-    const itemKey = `item:${itemId}`;
+    const itemKey = "item:" + itemId;
     const item = await this.ctx.storage.get(itemKey);
-
     if (!item || item.status !== "generating_alternative_topic") {
       return { ok: false, skipped: true };
     }
 
-    const rejectedTopics = Array.isArray(item.rejected_topics)
-      ? item.rejected_topics
-      : [];
-
+    const rejectedTopics = Array.isArray(item.rejected_topics) ? item.rejected_topics : [];
+    const recentTopics = await getRecentEditorialTopics(this.ctx.storage, itemId);
     const prompt =
-      `Ты — выпускающий редактор OSINTNER, профессионального медиа об OSINT, комплаенсе, AML и антифроде.\n\n` +
-      `Предложи ОДНУ новую тему взамен отклонённой. Это должен быть другой самостоятельный сюжет, а не перефразирование или сужение прежней темы.\n\n` +
-      `КАТЕГОРИЯ: ${item.category || "OSINT"}\n` +
-      `ОТКЛОНЁННЫЕ ТЕМЫ — НЕ ПОВТОРЯТЬ ПО СМЫСЛУ: ${rejectedTopics.join(" | ")}\n\n` +
-      `ОБЯЗАТЕЛЬНЫЕ РЕДАКЦИОННЫЕ ТРЕБОВАНИЯ:\n` +
-      `1. Одна тема = одна конкретная проблема, один объект проверки или один метод расследования.\n` +
-      `2. Заголовок должен быть понятным, естественным и профессиональным, без канцелярита и искусственных терминов.\n` +
-      `3. Ориентир — 8–14 слов, абсолютный максимум — 16 слов.\n` +
-      `4. Не объединяй несколько сюжетов и не перечисляй более двух инструментов или источников.\n` +
-      `5. Не используй конструкции «через анализ A, B и C для выявления X, Y и Z». Не превращай заголовок в план статьи.\n` +
-      `6. Выбирай практически значимый сюжет для специалистов по OSINT, комплаенсу, AML и антифроду с учётом категории материала.\n` +
-      `7. Не обещай доказать личность, аффилированность или нарушение, если доступны только косвенные признаки. Не выдумывай факты, компании и статистику.\n` +
-      `8. Чередуй предметные области и типы задач; не предлагай снова тот же объект расследования под другими словами.\n\n` +
-      `Перед ответом проверь длину, ясность, естественность и отличие от всех отклонённых тем. При несоответствии придумай другой сюжет.\n\n` +
-      `Верни только один короткий заголовок на русском языке, без кавычек, пояснений и нумерации.`;
+      "Ты — выпускающий редактор OSINTNER, профессионального медиа об OSINT, комплаенсе, AML и антифроде.\\n\\n" +
+      "Предложи ОДНУ новую тему взамен отклонённой. Это должен быть другой самостоятельный сюжет, а не перефразирование или сужение прежней темы.\\n\\n" +
+      "КАТЕГОРИЯ: " + (item.category || "OSINT") + "\\n" +
+      "ОТКЛОНЁННЫЕ ТЕМЫ — НЕ ПОВТОРЯТЬ ПО СМЫСЛУ: " + rejectedTopics.join(" | ") + "\\n\\n" +
+      "Требования: одна конкретная проблема или объект проверки; естественный профессиональный русский язык; 8–14 слов, максимум 16; без канцелярита, искусственных терминов и перечисления нескольких сюжетов. Не выдумывай факты, компании или статистику. Выбери другой предмет и другой сценарий. Верни только один заголовок.";
 
-    try {
-      const recentTopics = await getRecentEditorialTopics(this.ctx.storage, itemId);
-      const blockedTopics = [...new Set([item.title, ...recentTopics, ...rejectedTopics].filter(Boolean))];
-      const rejectedCandidates = [];
-      let title = "";
-      let lastTopicError = "";
-      let attempt = 0;
-      let transientFailures = 0;
+    const jobId = "alternative:" + itemId + ":" + crypto.randomUUID().slice(0, 8);
+    const jobKey = "topic-generation:" + jobId;
+    const job = {
+      id: jobId,
+      mode: "alternative",
+      item_id: itemId,
+      category: item.category || "OSINT",
+      prompt,
+      recent_topics: recentTopics.slice(0, 120),
+      rejected_candidates: [...new Set([item.title, ...rejectedTopics].filter(Boolean))].slice(-120),
+      attempts: 0,
+      transient_failures: 0,
+      user_id: String(this.env.TELEGRAM_CHAT_ID || ""),
+      expected_chat_id: this.env.TELEGRAM_CHAT_ID,
+      status: "pending",
+      created_at: new Date().toISOString(),
+      next_attempt_at: Date.now()
+    };
 
-      // Rejected alternatives are added to the exclusion list; temporary API failures are retried.
-      while (!title) {
-        attempt++;
-        const currentBlockedTopics = [...new Set([...blockedTopics, ...rejectedCandidates])];
-        try {
-          const generatedTopic = await geminiGenerate(
-            this.env,
-            prompt + "\\n\\nТЕМЫ, УЖЕ ИСПОЛЬЗОВАННЫЕ ИЛИ ОТКЛОНЁННЫЕ — НЕ ПОВТОРЯТЬ: " + JSON.stringify(currentBlockedTopics.slice(-120)) +
-              "\\nПопытка " + attempt + ". Выбери принципиально другой предмет и другой сценарий.",
-            { task: "topic", maxAttempts: 3, fallbackModels: ["gemini-3.1-flash-lite"] }
-          );
-          const candidate = generatedTopic.replace(/^["«]|["»]$/g, "").trim();
-          if (!candidate) {
-            lastTopicError = "Gemini generated an empty alternative topic";
-            rejectedCandidates.push("(пустой ответ модели " + attempt + ")");
-            continue;
-          }
-
-          const duplicateByWords = isSimilarEditorialTopic(candidate, currentBlockedTopics);
-          const duplicateByMeaning = duplicateByWords
-            ? true
-            : await isSemanticDuplicateEditorialTopic(this.env, candidate, currentBlockedTopics);
-
-          if (duplicateByWords || duplicateByMeaning) {
-            lastTopicError = "Повтор темы по смыслу: " + candidate;
-            rejectedCandidates.push(candidate);
-            console.warn("Alternative editorial topic rejected; generating another:", {
-              itemId, attempt, candidate, rejected_count: rejectedCandidates.length
-            });
-            continue;
-          }
-
-          title = candidate;
-          console.log("Alternative editorial topic passed uniqueness checks:", { itemId, attempt, title });
-        } catch (error) {
-          transientFailures++;
-          lastTopicError = String(error.message || error);
-          const delayMs = Math.min(60_000, 2_000 * (2 ** Math.min(transientFailures - 1, 5)));
-          console.error("Alternative topic generation/check failed; retrying:", {
-            itemId, attempt, transientFailures, delayMs, error: lastTopicError.slice(0, 400)
-          });
-          await new Promise(resolve => setTimeout(resolve, delayMs));
-        }
-
-        if (attempt % 10 === 0 && !title) {
-          console.warn("Alternative topic generation is still running:", {
-            itemId, attempt, rejected_count: rejectedCandidates.length, last_error: lastTopicError.slice(0, 300)
-          });
-        }
-      }
-
-      const timestamp = new Date().toISOString();
-
-      await this.ctx.storage.transaction(async (txn) => {
-        const current = await txn.get(itemKey);
-
-        if (!current || current.status !== "generating_alternative_topic") {
-          return;
-        }
-
-        current.title = title;
-        current.content = `КАТЕГОРИЯ: ${current.category}\n\nТЕМА: ${title}`;
-        current.stage = "topic";
-        current.status = "pending";
-        current.approval_id = crypto.randomUUID();
-        current.updated_at = timestamp;
-        current.alternative_topic_count =
-          Number(current.alternative_topic_count || 0) + 1;
-
-        await txn.put("editorial:topic_history",
-          [...(await txn.get("editorial:topic_history") || []), { title, category: current.category, created_at: timestamp }].slice(-200)
-        );
-        await txn.put(itemKey, current);
-
-        await this.addEvent(txn, {
-          item_id: current.id,
-          stage: "topic",
-          action: "ai_alternative_topic_generated",
-          category: current.category,
-          title,
-          user_id: String(this.env.TELEGRAM_CHAT_ID || "")
-        });
-
-        await this.enqueue(
-          txn,
-          "sendMessage",
-          {
-            chat_id: this.env.TELEGRAM_CHAT_ID,
-            text: "Предлагаю другой вариант темы. Проверь его:",
-          }
-        );
-
-        await this.enqueue(
-          txn,
-          "sendMessage",
-          approvalMessage(current, this.env.TELEGRAM_CHAT_ID)
-        );
-      });
-
-      await this.flushOutbox();
-
-      return { ok: true, status: "pending", item_id: itemId, title };
-    } catch (error) {
-      console.error("Alternative topic generation failed:", error.message);
-
-      await this.ctx.storage.transaction(async (txn) => {
-        const current = await txn.get(itemKey);
-        if (!current || current.status !== "generating_alternative_topic") {
-          return;
-        }
-
-        current.status = "alternative_topic_generation_failed";
-        current.updated_at = new Date().toISOString();
-        await txn.put(itemKey, current);
-
-        await this.enqueue(txn, "sendMessage", {
-          chat_id: this.env.TELEGRAM_CHAT_ID,
-          text: "Не удалось автоматически подготовить другую тему. Отправь /generate, чтобы создать новый материал."
-        });
-      });
-
-      await this.flushOutbox();
-      return { ok: false, error: "alternative_topic_generation_failed" };
-    }
+    await this.ctx.storage.put(jobKey, job);
+    await this.ctx.storage.setAlarm(Date.now() + 1000);
+    console.log("Alternative editorial topic queued for durable processing:", {
+      item_id: itemId, job_id: jobId
+    });
+    return { ok: true, status: "generating_alternative_topic", job_id: jobId };
   }
-
-  // ==================================================
-  // TEST MATERIAL
-  // ==================================================
 
   async handleTest(payload) {
     const expectedId = String(
