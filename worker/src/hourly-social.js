@@ -871,7 +871,9 @@ function selectChildhoodNostalgia(history, scheduledAt) {
 
 function selectVerifiedHourlyQuote(history, scheduledAt) {
   const recentAuthors = new Set(recentHourlyQuoteAuthors(history).slice(-8));
-  const start = Math.abs(Math.floor(Number(scheduledAt || Date.now()) / 3600000)) % VERIFIED_HOURLY_QUOTES.length;
+  const quotePublicationCount = (Array.isArray(history) ? history : [])
+    .filter(item => item && item.category === "Цитаты великих людей").length;
+  const start = quotePublicationCount % VERIFIED_HOURLY_QUOTES.length;
   for (let offset = 0; offset < VERIFIED_HOURLY_QUOTES.length; offset++) {
     const item = VERIFIED_HOURLY_QUOTES[(start + offset) % VERIFIED_HOURLY_QUOTES.length];
     if (recentAuthors.has(item.author)) continue;
@@ -978,8 +980,9 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const specialHistory = Array.isArray(specialHistoryValue) ? specialHistoryValue : [];
       const recentSpecial = specialHistory.slice(-45).map(item => String(item.text || "").slice(0, 300));
       const recentQuoteAuthors = recentHourlyQuoteAuthors(specialHistory);
+      const quotePublicationCount = specialHistory.filter(item => item && item.category === "Цитаты великих людей").length;
       const quoteCategory = HOURLY_QUOTE_AUTHOR_CATEGORIES[
-        Math.abs(Math.floor(Number(scheduledAt || Date.now()) / 3600000)) % HOURLY_QUOTE_AUTHOR_CATEGORIES.length
+        quotePublicationCount % HOURLY_QUOTE_AUTHOR_CATEGORIES.length
       ];
       const prompt = specialCategory === "Цитаты великих людей"
         ? "Ты — редактор рубрики цитат для русскоязычного Threads. Подготовь ОДНУ подлинную, дословно точную, вдохновляющую или мудрую цитату известного человека. ОБЯЗАТЕЛЬНО ЧЕРЕДУЙ СФЕРЫ: ориентир для этой публикации — " + quoteCategory + ". Не ограничивайся писателями и поэтами: используй предпринимателей, бизнесменов, инвесторов, философов, учёных, изобретателей, спортсменов, тренеров, актёров, режиссёров, музыкантов, общественных деятелей, правозащитников, политиков и других известных людей. Не выбирай писателя автоматически. Избегай авторов из списка недавно использованных: " + JSON.stringify(recentQuoteAuthors.slice(-8)) + ". Не повторяй цитаты и близкие по смыслу формулировки из недавних публикаций: " + JSON.stringify(recentSpecial) + ". Используй только цитаты, авторство и точный источник которых можно подтвердить поиском; приоритет — первоисточники: книги, речи, письма, интервью, архивы и официальные сайты. Не используй популярные, но спорные атрибуции. Если не можешь подтвердить цитату, верни объект с полем skip=true. Верни только поля quote и author. Не добавляй пояснений, хештегов, ссылок, эмодзи или вступления."
