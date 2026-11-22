@@ -803,13 +803,38 @@ const HOURLY_EDITORIAL_TRACKS = [
 ];
 
 const VERIFIED_HOURLY_QUOTES = [
-  { quote: "Я жить хочу, чтоб мыслить и страдать.", author: "Александр Пушкин", source_title: "Элегия (1830)", source_url: "https://ru.wikisource.org/wiki/Элегия_(Пушкин)" },
-  { quote: "Нам не дано предугадать, как слово наше отзовётся, — и нам сочувствие даётся, как нам даётся благодать.", author: "Фёдор Тютчев", source_title: "Нам не дано предугадать (1869)", source_url: "https://ru.wikisource.org/wiki/Нам_не_дано_предугадать_(Тютчев)/ПСС_1913_(ДО)" },
-  { quote: "И долго буду тем любезен я народу, что чувства добрые я лирой пробуждал.", author: "Александр Пушкин", source_title: "Я памятник себе воздвиг нерукотворный (1836)", source_url: "https://ru.wikisource.org/wiki/Я_памятник_себе_воздвиг_нерукотворный_(Пушкин)" },
-  { quote: "О сколько нам открытий чудных готовят просвещенья дух, и опыт, сын ошибок трудных, и гений, парадоксов друг.", author: "Александр Пушкин", source_title: "О сколько нам открытий чудных (1829)", source_url: "https://ru.wikisource.org/wiki/О_сколько_нам_открытий_чудных_(Пушкин)" },
-  { quote: "Умом Россию не понять, аршином общим не измерить: у ней особенная стать — в Россию можно только верить.", author: "Фёдор Тютчев", source_title: "Умом Россию не понять (1866)", source_url: "https://ru.wikisource.org/wiki/Умом_Россию_не_понять_(Тютчев)/ПСС_2002_(СО)" },
-  { quote: "Молчи, скрывайся и таи и чувства и мечты свои.", author: "Фёдор Тютчев", source_title: "Silentium! (1830)", source_url: "https://ru.wikisource.org/wiki/Silentium!_(Тютчев)/ДО" }
+  { quote: "Хорошо сделанное лучше хорошо сказанного.", author: "Бенджамин Франклин", category: "изобретатели и предприниматели", source_title: "Poor Richard’s Almanack (1737)", source_url: "https://founders.archives.gov/documents/Franklin/01-02-02-0001" },
+  { quote: "Если нет борьбы, нет и прогресса.", author: "Фредерик Дуглас", category: "общественные деятели", source_title: "Речь West India Emancipation (1857)", source_url: "https://www.nps.gov/frdo/learn/historyculture/thoughts-for-all-time.htm" },
+  { quote: "Знать недостаточно — нужно применять. Желать недостаточно — нужно действовать.", author: "Брюс Ли", category: "спортсмены и философы", source_title: "Официальный архив Bruce Lee", source_url: "https://brucelee.com/podcast-blog/2016/7/27/3" },
+  { quote: "Успех — плохой учитель: он заставляет умных людей думать, что они не могут проиграть.", author: "Билл Гейтс", category: "предприниматели и технологические лидеры", source_title: "The Road Ahead (1995)", source_url: "https://www.famous-quotations.com/authors/bill-gates/" },
+  { quote: "Мы чаще страдаем в воображении, чем в действительности.", author: "Сенека", category: "философы", source_title: "Нравственные письма к Луцилию, письмо 13, § 4", source_url: "https://en.wikisource.org/wiki/Page%3AAd_Lucilium_epistulae_morales%2C_volume_1.djvu/99" },
+  { quote: "Путешествие в тысячу ли начинается под ногами.", author: "Лао-цзы", category: "философы", source_title: "Дао дэ цзин, глава 64; перевод Джеймса Легга", source_url: "https://www.gutenberg.org/files/216/216-h/216-h.htm" },
+  { quote: "Твоё время ограничено, не трать его, живя чужой жизнью.", author: "Стив Джобс", category: "предприниматели и технологические лидеры", source_title: "Речь в Стэнфордском университете (2005)", source_url: "https://news.stanford.edu/2005/06/14/jobs-061505/" },
+  { quote: "Цена — это то, что ты платишь; ценность — то, что получаешь.", author: "Бенджамин Грэм", category: "инвесторы и бизнесмены", source_title: "Письмо Berkshire Hathaway акционерам (2008), где Уоррен Баффет указывает авторство Грэма", source_url: "https://www.berkshirehathaway.com/letters/2008ltr.pdf" },
+  { quote: "Если нет борьбы, нет прогресса.", author: "Фредерик Дуглас", category: "общественные деятели", source_title: "Речь West India Emancipation (1857)", source_url: "https://www.nps.gov/frdo/learn/historyculture/thoughts-for-all-time.htm" },
+  { quote: "Знать недостаточно — нужно применять. Желать недостаточно — нужно действовать.", author: "Брюс Ли", category: "спортсмены и философы", source_title: "Официальный архив Bruce Lee", source_url: "https://brucelee.com/podcast-blog/2016/7/27/3" },
+  { quote: "Такими, каковы твои обычные мысли, будет и характер твоего ума.", author: "Марк Аврелий", category: "философы и государственные деятели", source_title: "Размышления, книга V, глава 16; перевод Джорджа Лонга", source_url: "https://en.wikisource.org/wiki/The_Meditations_of_the_Emperor_Marcus_Antoninus/Book_5" },
+  { quote: "Хорошо сделанное лучше хорошо сказанного.", author: "Бенджамин Франклин", category: "изобретатели и предприниматели", source_title: "Poor Richard’s Almanack (1737)", source_url: "https://founders.archives.gov/documents/Franklin/01-02-02-0001" }
 ];
+
+const HOURLY_QUOTE_AUTHOR_CATEGORIES = [
+  "предприниматели и бизнесмены",
+  "философы и мыслители",
+  "учёные и изобретатели",
+  "спортсмены и тренеры",
+  "актёры, режиссёры и музыканты",
+  "общественные деятели и правозащитники",
+  "политики и государственные деятели",
+  "писатели и поэты"
+];
+
+function recentHourlyQuoteAuthors(history) {
+  return (Array.isArray(history) ? history : [])
+    .filter(item => item && item.category === "Цитаты великих людей")
+    .slice(-12)
+    .map(item => String(item.author || (String(item.text || "").match(/—\\s*([^\\n]+)/u) || [])[1] || "").trim())
+    .filter(Boolean);
+}
 
 const HOURLY_CHILDHOOD_NOSTALGIA = [
   "Летом мы уходили гулять после завтрака и возвращались, когда во дворе зажигались фонари. Домой звали не сообщением, а голосом из открытого окна.",
@@ -848,10 +873,12 @@ function selectChildhoodNostalgia(history, scheduledAt) {
 }
 
 function selectVerifiedHourlyQuote(history, scheduledAt) {
+  const recentAuthors = new Set(recentHourlyQuoteAuthors(history).slice(-8));
   const start = Math.abs(Math.floor(Number(scheduledAt || Date.now()) / 3600000)) % VERIFIED_HOURLY_QUOTES.length;
   for (let offset = 0; offset < VERIFIED_HOURLY_QUOTES.length; offset++) {
     const item = VERIFIED_HOURLY_QUOTES[(start + offset) % VERIFIED_HOURLY_QUOTES.length];
-    const text = "«" + item.quote + "»\n\n— " + item.author;
+    if (recentAuthors.has(item.author)) continue;
+    const text = "«" + item.quote + "»\\n\\n— " + item.author;
     if (!isDuplicateHourlyStory(text, [], history)) return { ...item, text };
   }
   return null;
@@ -953,8 +980,12 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const specialHistoryValue = await storage.get("social:hourly:auto_history");
       const specialHistory = Array.isArray(specialHistoryValue) ? specialHistoryValue : [];
       const recentSpecial = specialHistory.slice(-45).map(item => String(item.text || "").slice(0, 300));
+      const recentQuoteAuthors = recentHourlyQuoteAuthors(specialHistory);
+      const quoteCategory = HOURLY_QUOTE_AUTHOR_CATEGORIES[
+        Math.abs(Math.floor(Number(scheduledAt || Date.now()) / 3600000)) % HOURLY_QUOTE_AUTHOR_CATEGORIES.length
+      ];
       const prompt = specialCategory === "Цитаты великих людей"
-        ? "Ты — редактор рубрики коротких цитат для русскоязычного Threads. Подготовь ОДНУ подлинную, дословно точную и широко документированную цитату известного человека. Используй только цитату, авторство которой можно уверенно подтвердить надёжными источниками; не сочиняй и не пересказывай. Предпочитай первоисточники: книги, речи, письма, интервью и архивные публикации. Если точную формулировку и автора нельзя уверенно подтвердить, верни объект с признаком пропуска. Цитата должна быть вдохновляющей, мудрой или поддерживающей, без токсичной мотивации. Верни только поля quote и author. Не добавляй пояснений, хештегов, ссылок, эмодзи или вступления. Не повторяй недавние публикации: " + JSON.stringify(recentSpecial) + "."
+        ? "Ты — редактор рубрики цитат для русскоязычного Threads. Подготовь ОДНУ подлинную, дословно точную, вдохновляющую или мудрую цитату известного человека. ОБЯЗАТЕЛЬНО ЧЕРЕДУЙ СФЕРЫ: ориентир для этой публикации — " + quoteCategory + ". Не ограничивайся писателями и поэтами: используй предпринимателей, бизнесменов, инвесторов, философов, учёных, изобретателей, спортсменов, тренеров, актёров, режиссёров, музыкантов, общественных деятелей, правозащитников, политиков и других известных людей. Не выбирай писателя автоматически. Избегай авторов из списка недавно использованных: " + JSON.stringify(recentQuoteAuthors.slice(-8)) + ". Не повторяй цитаты и близкие по смыслу формулировки из недавних публикаций: " + JSON.stringify(recentSpecial) + ". Используй только цитаты, авторство и точный источник которых можно подтвердить поиском; приоритет — первоисточники: книги, речи, письма, интервью, архивы и официальные сайты. Не используй популярные, но спорные атрибуции. Если не можешь подтвердить цитату, верни {\\"skip\\":true}. Верни только поля quote и author. Не добавляй пояснений, хештегов, ссылок, эмодзи или вступления."
         : "Ты — автор тёплой ностальгической рубрики о детстве. Напиши один короткий, добрый, живой пост-воспоминание о жизни детей в 1990-е годы или просто о детстве: двор, друзья, игры, школьные мелочи, телевизор, мультфильмы, кассеты, вкладыши, фишки, фантики, летние каникулы, семейные привычки. Используй узнаваемые бытовые детали, но не выдавай выдуманное за универсальный факт. Можно начать с А помните. Тон тёплый, светлый, без грусти по нынешним детям и без противопоставления поколений. 1–3 коротких предложения, до 350 символов. Не задавай вопрос в каждом посте, чередуй повествовательные форматы. Без хештегов, ссылок, упоминаний и эмодзи. Не повторяй недавние публикации: " + JSON.stringify(recentSpecial) + ".";
       let specialText = "";
       let specialSource = null;
@@ -971,8 +1002,15 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         if (specialCategory === "Цитаты великих людей") {
           const quote = normalizeText(parsed.quote || "");
           const author = normalizeText(parsed.author || "");
+          const recentAuthors = new Set(recentHourlyQuoteAuthors(specialHistory).slice(-8));
           if (!quote || !author || quote.length > 300 || author.length > 90 || /[#@]|https?:\/\//iu.test(quote + author)) {
             throw new Error("Цитата или имя автора не прошли проверку формата");
+          }
+          if (recentAuthors.has(author)) {
+            throw new Error("Автор уже появлялся в недавних публикациях: " + author);
+          }
+          if (isDuplicateHourlyStory("«" + quote + "»\\n\\n— " + author, [], specialHistory)) {
+            throw new Error("Цитата уже публиковалась недавно");
           }
           specialText = "«" + quote.replace(/^«|»$/gu, "") + "»\\n\\n— " + author;
         } else {
@@ -1009,6 +1047,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const at = new Date().toISOString();
       const record = {
         slot, category: specialCategory, geo_scope: "", text: specialText,
+        author: specialCategory === "Цитаты великих людей" ? (specialSource?.author || (specialText.match(/—\\s*([^\\n]+)/u) || [])[1] || "") : "",
         source_urls: specialSource ? [specialSource.source_url] : [],
         source_domains: specialSource ? ["ru.wikisource.org"] : [],
         source_titles: specialSource ? [specialSource.source_title] : [],
