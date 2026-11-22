@@ -838,20 +838,6 @@ function selectChildhoodNostalgia(history, scheduledAt) {
   return HOURLY_CHILDHOOD_NOSTALGIA[start];
 }
 
-function selectVerifiedHourlyQuote(history, scheduledAt) {
-  const recentAuthors = new Set(recentHourlyQuoteAuthors(history).slice(-8));
-  const quotePublicationCount = (Array.isArray(history) ? history : [])
-    .filter(item => item && item.category === "Цитаты великих людей").length;
-  const start = quotePublicationCount % VERIFIED_HOURLY_QUOTES.length;
-  for (let offset = 0; offset < VERIFIED_HOURLY_QUOTES.length; offset++) {
-    const item = VERIFIED_HOURLY_QUOTES[(start + offset) % VERIFIED_HOURLY_QUOTES.length];
-    if (recentAuthors.has(item.author)) continue;
-    const text = "«" + item.quote + "»\n\n— " + item.author;
-    if (!isDuplicateHourlyStory(text, [], history)) return { ...item, text };
-  }
-  return null;
-}
-
 export async function runHourlyAutoPublish(coordinator, payload, deps) {
   const storage = coordinator.ctx.storage;
   const env = coordinator.env;
