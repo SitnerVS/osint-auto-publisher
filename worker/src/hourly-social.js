@@ -802,37 +802,6 @@ const HOURLY_EDITORIAL_TRACKS = [
   }
 ];
 
-const VERIFIED_HOURLY_QUOTES = [
-  { quote: "Хорошо сделанное лучше хорошо сказанного.", author: "Бенджамин Франклин", category: "изобретатели и предприниматели", source_title: "Poor Richard’s Almanack (1737)", source_url: "https://hamilton.gilderlehrman.org/supporting-document/poor-richards-almanac" },
-  { quote: "Если нет борьбы, нет и прогресса.", author: "Фредерик Дуглас", category: "общественные деятели", source_title: "Речь West India Emancipation (1857)", source_url: "https://www.nps.gov/frdo/learn/historyculture/thoughts-for-all-time.htm" },
-  { quote: "Успех — плохой учитель: он заставляет умных людей думать, что они не могут проиграть.", author: "Билл Гейтс", category: "предприниматели и технологические лидеры", source_title: "The Road Ahead (1995)", source_url: "https://www.famous-quotations.com/authors/bill-gates/" },
-  { quote: "Мы чаще страдаем в воображении, чем в действительности.", author: "Сенека", category: "философы", source_title: "Нравственные письма к Луцилию, письмо 13, § 4", source_url: "https://en.wikisource.org/wiki/Page%3AAd_Lucilium_epistulae_morales%2C_volume_1.djvu/99" },
-  { quote: "Путешествие в тысячу ли начинается под ногами.", author: "Лао-цзы", category: "философы", source_title: "Дао дэ цзин, глава 64; перевод Джеймса Легга", source_url: "https://www.gutenberg.org/files/216/216-h/216-h.htm" },
-  { quote: "Твоё время ограничено, не трать его, живя чужой жизнью.", author: "Стив Джобс", category: "предприниматели и технологические лидеры", source_title: "Речь в Стэнфордском университете (2005)", source_url: "https://news.stanford.edu/2005/06/14/jobs-061505/" },
-  { quote: "Цена — это то, что ты платишь; ценность — то, что получаешь.", author: "Бенджамин Грэм", category: "инвесторы и бизнесмены", source_title: "Письмо Berkshire Hathaway акционерам (2008), где Уоррен Баффет указывает авторство Грэма", source_url: "https://www.berkshirehathaway.com/letters/2008ltr.pdf" },
-  { quote: "Знать недостаточно — нужно применять. Желать недостаточно — нужно действовать.", author: "Брюс Ли", category: "спортсмены и философы", source_title: "Официальный архив Bruce Lee", source_url: "https://brucelee.com/podcast-blog/2016/7/27/3" },
-  { quote: "Такими, каковы твои обычные мысли, будет и характер твоего ума.", author: "Марк Аврелий", category: "философы и государственные деятели", source_title: "Размышления, книга V, глава 16; перевод Джорджа Лонга", source_url: "https://en.wikisource.org/wiki/The_Meditations_of_the_Emperor_Marcus_Antoninus/Book_5" },
-];
-
-const HOURLY_QUOTE_AUTHOR_CATEGORIES = [
-  "предприниматели и бизнесмены",
-  "философы и мыслители",
-  "учёные и изобретатели",
-  "спортсмены и тренеры",
-  "актёры, режиссёры и музыканты",
-  "общественные деятели и правозащитники",
-  "политики и государственные деятели",
-  "писатели и поэты"
-];
-
-function recentHourlyQuoteAuthors(history) {
-  return (Array.isArray(history) ? history : [])
-    .filter(item => item && item.category === "Цитаты великих людей")
-    .slice(-12)
-    .map(item => String(item.author || (String(item.text || "").match(/—\s*([^\n]+)/u) || [])[1] || "").trim())
-    .filter(Boolean);
-}
-
 const HOURLY_CHILDHOOD_NOSTALGIA = [
   "Летом мы уходили гулять после завтрака и возвращались, когда во дворе зажигались фонари. Домой звали не сообщением, а голосом из открытого окна.",
   "У каждого двора была своя компания, свои правила и своё место встречи. Стоило выйти из подъезда — и уже находилось, чем заняться до самого вечера.",
@@ -979,13 +948,8 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const specialHistoryValue = await storage.get("social:hourly:auto_history");
       const specialHistory = Array.isArray(specialHistoryValue) ? specialHistoryValue : [];
       const recentSpecial = specialHistory.slice(-45).map(item => String(item.text || "").slice(0, 300));
-      const recentQuoteAuthors = recentHourlyQuoteAuthors(specialHistory);
-      const quotePublicationCount = specialHistory.filter(item => item && item.category === "Цитаты великих людей").length;
-      const quoteCategory = HOURLY_QUOTE_AUTHOR_CATEGORIES[
-        quotePublicationCount % HOURLY_QUOTE_AUTHOR_CATEGORIES.length
-      ];
       const prompt = specialCategory === "Цитаты великих людей"
-        ? "Ты — редактор рубрики цитат для русскоязычного Threads. Подготовь ОДНУ подлинную, дословно точную, вдохновляющую или мудрую цитату известного человека. ОБЯЗАТЕЛЬНО ЧЕРЕДУЙ СФЕРЫ: ориентир для этой публикации — " + quoteCategory + ". Не ограничивайся писателями и поэтами: используй предпринимателей, бизнесменов, инвесторов, философов, учёных, изобретателей, спортсменов, тренеров, актёров, режиссёров, музыкантов, общественных деятелей, правозащитников, политиков и других известных людей. Не выбирай писателя автоматически. Избегай авторов из списка недавно использованных: " + JSON.stringify(recentQuoteAuthors.slice(-8)) + ". Не повторяй цитаты и близкие по смыслу формулировки из недавних публикаций: " + JSON.stringify(recentSpecial) + ". Используй только цитаты, авторство и точный источник которых можно подтвердить поиском; приоритет — первоисточники: книги, речи, письма, интервью, архивы и официальные сайты. Не используй популярные, но спорные атрибуции. Если не можешь подтвердить цитату, верни объект с полем skip=true. Верни только поля quote и author. Не добавляй пояснений, хештегов, ссылок, эмодзи или вступления."
+        ? "Ты — редактор открытой, всемирной рубрики цитат для русскоязычного Threads. Подготовь ОДНУ подлинную, дословно точную, вдохновляющую или мудрую цитату любого известного человека. КРУГ АВТОРОВ НЕ ОГРАНИЧЕН: не используй фиксированный список, каталог, белый список, заранее заданные категории, страны, эпохи или профессии. Подходят любые известные люди без исключений по сфере деятельности и происхождению: предприниматели, бизнесмены, инвесторы, философы, учёные, изобретатели, инженеры, спортсмены, тренеры, актёры, режиссёры, музыканты, художники, писатели, поэты, журналисты, исследователи, общественные деятели, правозащитники, политики, государственные деятели, религиозные и духовные лидеры и любые другие исторические или современные личности. Выбирай автора свободно, исходя из силы и уместности самой цитаты; не чередуй профессии по расписанию и не отдавай автоматического предпочтения писателям. Не исключай автора только потому, что он уже появлялся ранее. Не повторяй сами цитаты и близкие по смыслу формулировки из недавних публикаций: " + JSON.stringify(recentSpecial) + ". Ищи цитаты по всему миру, на разных языках и из разных эпох; приоритет — первоисточники: книги, речи, письма, интервью, архивы и официальные сайты. Используй только цитаты, авторство и точную формулировку которых можно подтвердить поиском. Не используй популярные, но спорные атрибуции и не приписывай человеку слова, которые он не произносил. Если не можешь подтвердить цитату, верни объект с полем skip=true. Верни только поля quote и author. Не добавляй пояснений, хештегов, ссылок, эмодзи или вступления."
         : "Ты — автор тёплой ностальгической рубрики о детстве. Напиши один короткий, добрый, живой пост-воспоминание о жизни детей в 1990-е годы или просто о детстве: двор, друзья, игры, школьные мелочи, телевизор, мультфильмы, кассеты, вкладыши, фишки, фантики, летние каникулы, семейные привычки. Используй узнаваемые бытовые детали, но не выдавай выдуманное за универсальный факт. Можно начать с А помните. Тон тёплый, светлый, без грусти по нынешним детям и без противопоставления поколений. 1–3 коротких предложения, до 350 символов. Не задавай вопрос в каждом посте, чередуй повествовательные форматы. Без хештегов, ссылок, упоминаний и эмодзи. Не повторяй недавние публикации: " + JSON.stringify(recentSpecial) + ".";
       let specialText = "";
       let specialSource = null;
@@ -1002,12 +966,8 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         if (specialCategory === "Цитаты великих людей") {
           const quote = normalizeText(parsed.quote || "");
           const author = normalizeText(parsed.author || "");
-          const recentAuthors = new Set(recentHourlyQuoteAuthors(specialHistory).slice(-8));
           if (!quote || !author || quote.length > 300 || author.length > 90 || /[#@]|https?:\/\//iu.test(quote + author)) {
             throw new Error("Цитата или имя автора не прошли проверку формата");
-          }
-          if (recentAuthors.has(author)) {
-            throw new Error("Автор уже появлялся в недавних публикациях: " + author);
           }
           if (isDuplicateHourlyStory("«" + quote + "»\n\n— " + author, [], specialHistory)) {
             throw new Error("Цитата уже публиковалась недавно");
@@ -1021,14 +981,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         }
       } catch (generationError) {
         if (specialCategory === "Цитаты великих людей") {
-          const fallback = selectVerifiedHourlyQuote(specialHistory, scheduledAt);
-          if (!fallback) throw new Error("Все резервные проверенные цитаты уже использованы недавно. " + String(generationError.message || generationError).slice(0, 250));
-          specialText = fallback.text;
-          specialSource = fallback;
-          console.warn("Gemini unavailable; selected pre-verified quote fallback:", {
-            source: fallback.source_title, author: fallback.author,
-            reason: String(generationError.message || generationError).slice(0, 250)
-          });
+          throw new Error("Не удалось получить новую цитату с подтверждаемым авторством; публикация остановлена без подстановки ограниченного резервного списка. " + String(generationError.message || generationError).slice(0, 250));
         } else {
           specialText = selectChildhoodNostalgia(specialHistory, scheduledAt);
           console.warn("Gemini unavailable; selected original childhood nostalgia fallback:", {
@@ -1047,10 +1000,10 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const at = new Date().toISOString();
       const record = {
         slot, category: specialCategory, geo_scope: "", text: specialText,
-        author: specialCategory === "Цитаты великих людей" ? (specialSource?.author || (specialText.match(/—\s*([^\n]+)/u) || [])[1] || "") : "",
-        source_urls: specialSource ? [specialSource.source_url] : [],
-        source_domains: specialSource ? [new URL(specialSource.source_url).hostname.replace(/^www\\./u, "")] : [],
-        source_titles: specialSource ? [specialSource.source_title] : [],
+        author: specialCategory === "Цитаты великих людей" ? ((specialText.match(/—\s*([^\n]+)/u) || [])[1] || "") : "",
+        source_urls: [],
+        source_domains: [],
+        source_titles: [],
         threads_post_id: published.id, threads_permalink: published.permalink, published_at: at
       };
       const publishHistory = await storage.get("social:hourly:auto_history") || [];
