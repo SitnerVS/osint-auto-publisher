@@ -803,18 +803,15 @@ const HOURLY_EDITORIAL_TRACKS = [
 ];
 
 const VERIFIED_HOURLY_QUOTES = [
-  { quote: "Хорошо сделанное лучше хорошо сказанного.", author: "Бенджамин Франклин", category: "изобретатели и предприниматели", source_title: "Poor Richard’s Almanack (1737)", source_url: "https://founders.archives.gov/documents/Franklin/01-02-02-0001" },
+  { quote: "Хорошо сделанное лучше хорошо сказанного.", author: "Бенджамин Франклин", category: "изобретатели и предприниматели", source_title: "Poor Richard’s Almanack (1737)", source_url: "https://hamilton.gilderlehrman.org/supporting-document/poor-richards-almanac" },
   { quote: "Если нет борьбы, нет и прогресса.", author: "Фредерик Дуглас", category: "общественные деятели", source_title: "Речь West India Emancipation (1857)", source_url: "https://www.nps.gov/frdo/learn/historyculture/thoughts-for-all-time.htm" },
-  { quote: "Знать недостаточно — нужно применять. Желать недостаточно — нужно действовать.", author: "Брюс Ли", category: "спортсмены и философы", source_title: "Официальный архив Bruce Lee", source_url: "https://brucelee.com/podcast-blog/2016/7/27/3" },
   { quote: "Успех — плохой учитель: он заставляет умных людей думать, что они не могут проиграть.", author: "Билл Гейтс", category: "предприниматели и технологические лидеры", source_title: "The Road Ahead (1995)", source_url: "https://www.famous-quotations.com/authors/bill-gates/" },
   { quote: "Мы чаще страдаем в воображении, чем в действительности.", author: "Сенека", category: "философы", source_title: "Нравственные письма к Луцилию, письмо 13, § 4", source_url: "https://en.wikisource.org/wiki/Page%3AAd_Lucilium_epistulae_morales%2C_volume_1.djvu/99" },
   { quote: "Путешествие в тысячу ли начинается под ногами.", author: "Лао-цзы", category: "философы", source_title: "Дао дэ цзин, глава 64; перевод Джеймса Легга", source_url: "https://www.gutenberg.org/files/216/216-h/216-h.htm" },
   { quote: "Твоё время ограничено, не трать его, живя чужой жизнью.", author: "Стив Джобс", category: "предприниматели и технологические лидеры", source_title: "Речь в Стэнфордском университете (2005)", source_url: "https://news.stanford.edu/2005/06/14/jobs-061505/" },
   { quote: "Цена — это то, что ты платишь; ценность — то, что получаешь.", author: "Бенджамин Грэм", category: "инвесторы и бизнесмены", source_title: "Письмо Berkshire Hathaway акционерам (2008), где Уоррен Баффет указывает авторство Грэма", source_url: "https://www.berkshirehathaway.com/letters/2008ltr.pdf" },
-  { quote: "Если нет борьбы, нет прогресса.", author: "Фредерик Дуглас", category: "общественные деятели", source_title: "Речь West India Emancipation (1857)", source_url: "https://www.nps.gov/frdo/learn/historyculture/thoughts-for-all-time.htm" },
   { quote: "Знать недостаточно — нужно применять. Желать недостаточно — нужно действовать.", author: "Брюс Ли", category: "спортсмены и философы", source_title: "Официальный архив Bruce Lee", source_url: "https://brucelee.com/podcast-blog/2016/7/27/3" },
   { quote: "Такими, каковы твои обычные мысли, будет и характер твоего ума.", author: "Марк Аврелий", category: "философы и государственные деятели", source_title: "Размышления, книга V, глава 16; перевод Джорджа Лонга", source_url: "https://en.wikisource.org/wiki/The_Meditations_of_the_Emperor_Marcus_Antoninus/Book_5" },
-  { quote: "Хорошо сделанное лучше хорошо сказанного.", author: "Бенджамин Франклин", category: "изобретатели и предприниматели", source_title: "Poor Richard’s Almanack (1737)", source_url: "https://founders.archives.gov/documents/Franklin/01-02-02-0001" }
 ];
 
 const HOURLY_QUOTE_AUTHOR_CATEGORIES = [
@@ -832,7 +829,7 @@ function recentHourlyQuoteAuthors(history) {
   return (Array.isArray(history) ? history : [])
     .filter(item => item && item.category === "Цитаты великих людей")
     .slice(-12)
-    .map(item => String(item.author || (String(item.text || "").match(/—\\s*([^\\n]+)/u) || [])[1] || "").trim())
+    .map(item => String(item.author || (String(item.text || "").match(/—\s*([^\n]+)/u) || [])[1] || "").trim())
     .filter(Boolean);
 }
 
@@ -878,7 +875,7 @@ function selectVerifiedHourlyQuote(history, scheduledAt) {
   for (let offset = 0; offset < VERIFIED_HOURLY_QUOTES.length; offset++) {
     const item = VERIFIED_HOURLY_QUOTES[(start + offset) % VERIFIED_HOURLY_QUOTES.length];
     if (recentAuthors.has(item.author)) continue;
-    const text = "«" + item.quote + "»\\n\\n— " + item.author;
+    const text = "«" + item.quote + "»\n\n— " + item.author;
     if (!isDuplicateHourlyStory(text, [], history)) return { ...item, text };
   }
   return null;
@@ -1009,10 +1006,10 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           if (recentAuthors.has(author)) {
             throw new Error("Автор уже появлялся в недавних публикациях: " + author);
           }
-          if (isDuplicateHourlyStory("«" + quote + "»\\n\\n— " + author, [], specialHistory)) {
+          if (isDuplicateHourlyStory("«" + quote + "»\n\n— " + author, [], specialHistory)) {
             throw new Error("Цитата уже публиковалась недавно");
           }
-          specialText = "«" + quote.replace(/^«|»$/gu, "") + "»\\n\\n— " + author;
+          specialText = "«" + quote.replace(/^«|»$/gu, "") + "»\n\n— " + author;
         } else {
           specialText = normalizeText(parsed.text || parsed.post || "");
           if (!specialText || specialText.length > 350 || !/[А-Яа-яЁё]/u.test(specialText) || /[#@]|https?:\/\//iu.test(specialText)) {
@@ -1047,7 +1044,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const at = new Date().toISOString();
       const record = {
         slot, category: specialCategory, geo_scope: "", text: specialText,
-        author: specialCategory === "Цитаты великих людей" ? (specialSource?.author || (specialText.match(/—\\s*([^\\n]+)/u) || [])[1] || "") : "",
+        author: specialCategory === "Цитаты великих людей" ? (specialSource?.author || (specialText.match(/—\s*([^\n]+)/u) || [])[1] || "") : "",
         source_urls: specialSource ? [specialSource.source_url] : [],
         source_domains: specialSource ? ["ru.wikisource.org"] : [],
         source_titles: specialSource ? [specialSource.source_title] : [],
