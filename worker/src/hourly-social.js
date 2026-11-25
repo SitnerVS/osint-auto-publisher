@@ -988,7 +988,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
               reason: String(geminiError.message || geminiError).slice(0, 300)
             });
             const fallback = await deps.groqGenerate(env, prompt +
-              "\n\nВАЖНО: используй browser search. Верни только цитату, которую можно подтвердить найденными страницами. Не угадывай и не реконструируй цитату. Если точная формулировка и автор не подтверждены результатами поиска, верни {\\"skip\\":true}.",
+              '\n\nВАЖНО: используй browser search. Верни только цитату, которую можно подтвердить найденными страницами. Не угадывай и не реконструируй цитату. Если точная формулировка и автор не подтверждены результатами поиска, верни {"skip":true}.',
               {
                 task: "hourly_verified_inspirational_quote_fallback",
                 temperature: 0.2,
