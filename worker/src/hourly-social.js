@@ -829,6 +829,28 @@ const HOURLY_CHILDHOOD_NOSTALGIA = [
   "Самые яркие воспоминания детства часто состоят из простых вещей: знакомого двора, голосов друзей и длинного летнего вечера. Тогда мы не думали, что однажды будем так тепло это вспоминать."
 ];
 
+async function scheduleHourlyAutoRetry(storage, slot, scheduledAt, error) {
+  const key = "social:hourly:auto_retry:" + slot;
+  const previous = await storage.get(key);
+  const attempt = Number(previous?.attempt || 0) + 1;
+  const message = String(error?.message || error || "Unknown hourly publication failure").slice(0, 700);
+  const rateLimited = /429|quota|rate.?limit|resource_exhausted/iu.test(message);
+  const baseDelay = rateLimited ? 5 * 60 * 1000 : 2 * 60 * 1000;
+  const delay = Math.min(30 * 60 * 1000, baseDelay * (2 ** Math.min(attempt - 1, 3)));
+  const nextAttemptAt = Date.now() + delay;
+  await storage.put(key, {
+    status: "pending",
+    slot,
+    scheduled_at: scheduledAt,
+    attempt,
+    last_error: message,
+    next_attempt_at: nextAttemptAt,
+    updated_at: new Date().toISOString()
+  });
+  await storage.setAlarm(nextAttemptAt);
+  return { attempt, next_attempt_at: nextAttemptAt, retry_key: key };
+}
+
 function selectChildhoodNostalgia(history, scheduledAt) {
   const start = Math.abs(Math.floor(Number(scheduledAt || Date.now()) / 3600000)) % HOURLY_CHILDHOOD_NOSTALGIA.length;
   for (let offset = 0; offset < HOURLY_CHILDHOOD_NOSTALGIA.length; offset++) {
@@ -850,6 +872,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     : null;
   const slot = requestedSlot || new Date(scheduledAt).toISOString().slice(0, 13);
   const slotKey = "social:hourly:auto_slot:" + slot;
+  const retryKey = "social:hourly:auto_retry:" + slot;
   if (payload?.action === "approve" || payload?.action === "reject") {
     const pending = await storage.get(slotKey);
     if (!pending || pending.status !== "awaiting_approval") {
@@ -880,7 +903,10 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     }
   }
   const existing = await storage.get(slotKey);
-  if (existing?.status === "published") return { ok: true, skipped: true, reason: "slot_already_published" };
+  if (existing?.status === "published") {
+    await storage.delete(retryKey);
+    return { ok: true, skipped: true, reason: "slot_already_published" };
+  }
   if (existing?.status === "awaiting_approval") {
     return { ok: true, pending_approval: true, skipped: true, reason: "slot_waiting_for_user_decision", slot };
   }
@@ -889,17 +915,20 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     return { ok: true, skipped: true, reason: "slot_in_progress" };
   }
   const lastPublishedAt = Number(await storage.get("social:hourly:auto_last_published_at") || 0);
-  if (lastPublishedAt && Date.now() - lastPublishedAt < 55 * 60 * 1000) {
+  if (payload?.retry !== true && lastPublishedAt && Date.now() - lastPublishedAt < 55 * 60 * 1000) {
     return { ok: true, skipped: true, reason: "interval_not_elapsed", next_at: lastPublishedAt + 60 * 60 * 1000 };
   }
   const token = await storage.get("threads:oauth:token");
   if (!token?.access_token || !token?.user_id || Number(token.expires_at || 0) <= Date.now()) {
-    await storage.put(slotKey, { status: "skipped", reason: "threads_not_connected", created_at: new Date().toISOString() });
-    await deps.telegram(env, "sendMessage", {
-      chat_id: env.TELEGRAM_CHAT_ID,
-      text: "Ежечасная публикация пропущена: аккаунт Threads не подключён или токен истёк."
-    });
-    return { ok: true, skipped: true, reason: "threads_not_connected" };
+    const retry = await scheduleHourlyAutoRetry(storage, slot, scheduledAt, "Threads access token отсутствует или истёк");
+    await storage.put(slotKey, { status: "failed", reason: "threads_not_connected", retry_attempt: retry.attempt, next_attempt_at: retry.next_attempt_at, created_at: new Date().toISOString() });
+    if (retry.attempt === 1) {
+      await deps.telegram(env, "sendMessage", {
+        chat_id: env.TELEGRAM_CHAT_ID,
+        text: "Ежечасная публикация временно не выполнена: аккаунт Threads не подключён или токен истёк. Повторные попытки запланированы автоматически."
+      });
+    }
+    return { ok: false, skipped: true, reason: "threads_not_connected", retry_at: retry.next_attempt_at };
   }
 
   const utcHour = Math.floor(scheduledAt / 3600000);
@@ -997,6 +1026,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       await storage.put("social:hourly:auto_history", publishHistory.slice(-300));
       await storage.put("social:hourly:auto_last_published_at", Date.now());
       await storage.put(slotKey, { status: "published", ...record });
+      await storage.delete(retryKey);
       await deps.telegram(env, "sendMessage", {
         chat_id: env.TELEGRAM_CHAT_ID,
         text: "НОВАЯ РУБРИКА ОПУБЛИКОВАНА\nНаправление: " + specialCategory + "\n\n" + specialText +
@@ -1305,6 +1335,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     await storage.put("social:hourly:auto_last_published_at", Date.now());
     await storage.put("social:hourly:auto_last_geo_scope", geoScope);
     await storage.put(slotKey, { status: "published", ...record });
+    await storage.delete(retryKey);
     await deps.telegram(env, "sendMessage", {
       chat_id: env.TELEGRAM_CHAT_ID,
       text: "ЕЖЕЧАСНЫЙ ПОСТ ОПУБЛИКОВАН\nНаправление: " + track.name + "\n\n" + text +
@@ -1312,12 +1343,25 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     });
     return { ok: true, published: true, category: track.name, text, permalink: published.permalink };
   } catch (error) {
-    await storage.put(slotKey, { status: "failed", track: track.name, error: String(error.message || error).slice(0, 700), failed_at: new Date().toISOString() });
-    console.error("Hourly OSINT/compliance/anti-fraud auto-publish failed:", error.message);
-    await deps.telegram(env, "sendMessage", {
-      chat_id: env.TELEGRAM_CHAT_ID,
-      text: "Ежечасный пост не опубликован — проверка остановила выпуск.\nНаправление: " + track.name + "\nПричина: " + String(error.message || error).slice(0, 600)
+    const retry = await scheduleHourlyAutoRetry(storage, slot, scheduledAt, error);
+    await storage.put(slotKey, {
+      status: "failed", track: track.name,
+      error: String(error.message || error).slice(0, 700),
+      retry_attempt: retry.attempt, next_attempt_at: retry.next_attempt_at,
+      failed_at: new Date().toISOString()
     });
-    return { ok: true, skipped: true, reason: "editorial_validation_or_publish_failed", detail: String(error.message || error) };
+    console.error("Hourly auto-publish failed; durable retry scheduled:", {
+      slot, track: track.name, attempt: retry.attempt,
+      next_attempt_at: new Date(retry.next_attempt_at).toISOString(),
+      error: String(error.message || error).slice(0, 500)
+    });
+    if (retry.attempt === 1) {
+      await deps.telegram(env, "sendMessage", {
+        chat_id: env.TELEGRAM_CHAT_ID,
+        text: "Ежечасный пост пока не опубликован. Автоматические повторы запущены.\nНаправление: " + track.name + "\nПричина первой ошибки: " + String(error.message || error).slice(0, 500) +
+          "\nСледующая попытка: " + new Date(retry.next_attempt_at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })
+      });
+    }
+    return { ok: false, skipped: true, reason: "retry_scheduled", retry_attempt: retry.attempt, retry_at: retry.next_attempt_at, detail: String(error.message || error) };
   }
 }
