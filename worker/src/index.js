@@ -1801,7 +1801,31 @@ export class ApprovalCoordinator {
       } else if (path === "/hourly-auto-publish") {
         const hourlyEnabled = await this.ctx.storage.get("social:hourly:enabled");
         if (hourlyEnabled === false) result = { ok: true, skipped: true, reason: "hourly_rubric_disabled" };
-        else result = await runHourlyAutoPublish(this, payload, { geminiGenerate, tavilySearch, telegram });
+        else {
+          // Recover failures created by the previous deployment, before durable retries existed.
+          const slotPrefix = "social:hourly:auto_slot:";
+          const previousSlots = await this.ctx.storage.list({ prefix: slotPrefix });
+          let recovered = false;
+          for (const [key, previous] of previousSlots.entries()) {
+            if (!previous || !["failed", "skipped"].includes(previous.status)) continue;
+            if (previous.status === "skipped" && previous.reason !== "threads_not_connected") continue;
+            const slot = key.slice(slotPrefix.length);
+            const scheduledAt = Date.parse(slot + ":00.000Z");
+            if (!Number.isFinite(scheduledAt) || Date.now() - scheduledAt > 48 * 60 * 60 * 1000) continue;
+            const retryKey = "social:hourly:auto_retry:" + slot;
+            if (await this.ctx.storage.get(retryKey)) continue;
+            await this.ctx.storage.put(retryKey, {
+              status: "pending", slot, scheduled_at: scheduledAt, attempt: 0,
+              last_error: String(previous.error || previous.reason || "Recovered failed hourly slot").slice(0, 700),
+              next_attempt_at: Date.now() + 1000,
+              recovered_from_previous_deployment: true,
+              updated_at: new Date().toISOString()
+            });
+            recovered = true;
+          }
+          if (recovered) await this.ctx.storage.setAlarm(Date.now() + 1000);
+          result = await runHourlyAutoPublish(this, payload, { geminiGenerate, tavilySearch, telegram });
+        }
       } else if (path === "/hourly-trend") {
         const hourlyEnabled = await this.ctx.storage.get("social:hourly:enabled");
         if (hourlyEnabled === false && payload?.preview !== true) {
