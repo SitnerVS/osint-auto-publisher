@@ -969,13 +969,47 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       let specialText = "";
       let specialSource = null;
       try {
-        const generated = await deps.geminiGenerate(env, prompt, {
-          task: specialCategory === "Цитаты великих людей" ? "hourly_verified_inspirational_quote" : "hourly_childhood_nostalgia",
-          temperature: specialCategory === "Цитаты великих людей" ? 0.25 : 0.85,
-          maxOutputTokens: 500,
-          responseMimeType: "application/json",
-          ...(specialCategory === "Цитаты великих людей" ? { googleSearch: true } : {})
-        });
+        let generated;
+        if (specialCategory === "Цитаты великих людей") {
+          try {
+            generated = await deps.geminiGenerate(env, prompt, {
+              task: "hourly_verified_inspirational_quote",
+              temperature: 0.25,
+              maxOutputTokens: 500,
+              responseMimeType: "application/json",
+              googleSearch: true
+            });
+          } catch (geminiError) {
+            // Gemini free-tier quota can remain exhausted for the rest of the day.
+            // Fall back to the independent Groq browser-search path instead of
+            // repeatedly waiting on a provider that cannot serve this slot.
+            if (typeof deps.groqGenerate !== "function") throw geminiError;
+            console.warn("Gemini quote generation failed; switching to Groq web-search fallback:", {
+              reason: String(geminiError.message || geminiError).slice(0, 300)
+            });
+            const fallback = await deps.groqGenerate(env, prompt +
+              "\\n\\nВАЖНО: используй browser search. Верни только цитату, которую можно подтвердить найденными страницами. Не угадывай и не реконструируй цитату. Если точная формулировка и автор не подтверждены результатами поиска, верни {\\\"skip\\\":true}.",
+              {
+                task: "hourly_verified_inspirational_quote_fallback",
+                temperature: 0.2,
+                maxOutputTokens: 900,
+                browserSearch: true,
+                returnMetadata: true
+              });
+            if (!fallback || !fallback.text || !Array.isArray(fallback.sources) || fallback.sources.length === 0) {
+              throw new Error("Резервный поиск Groq не вернул подтверждающие источники");
+            }
+            generated = fallback.text;
+            specialSource = [...new Set(fallback.sources)].slice(0, 5);
+          }
+        } else {
+          generated = await deps.geminiGenerate(env, prompt, {
+            task: "hourly_childhood_nostalgia",
+            temperature: 0.85,
+            maxOutputTokens: 500,
+            responseMimeType: "application/json"
+          });
+        }
         const parsed = parseJsonObject(generated);
         if (parsed.skip === true) throw new Error("Не удалось подтвердить точную цитату и авторство");
         if (specialCategory === "Цитаты великих людей") {
@@ -1016,8 +1050,8 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const record = {
         slot, category: specialCategory, geo_scope: "", text: specialText,
         author: specialCategory === "Цитаты великих людей" ? ((specialText.match(/—\s*([^\n]+)/u) || [])[1] || "") : "",
-        source_urls: [],
-        source_domains: [],
+        source_urls: Array.isArray(specialSource) ? specialSource : [],
+        source_domains: Array.isArray(specialSource) ? specialSource.map(url => { try { return new URL(url).hostname.replace(/^www\\./u, ""); } catch (_) { return ""; } }).filter(Boolean) : [],
         source_titles: [],
         threads_post_id: published.id, threads_permalink: published.permalink, published_at: at
       };
