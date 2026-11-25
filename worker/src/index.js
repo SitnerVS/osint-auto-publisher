@@ -1795,6 +1795,7 @@ export class ApprovalCoordinator {
             enabled = true;
             await this.ctx.storage.put(key, true);
           }
+          if (enabled === true) await this.ctx.storage.setAlarm(Date.now() + 1000);
           result = { ok: true, enabled: enabled === true };
         }
       } else if (path === "/hourly-auto-publish") {
@@ -3348,6 +3349,59 @@ export class ApprovalCoordinator {
       }
     }
 
+    // Durable hourly publication retries: failed slots stay queued until Threads
+    // confirms publication. Retries reuse the original slot to prevent duplicate posts.
+    const hourlyEnabledForRetry = await this.ctx.storage.get("social:hourly:enabled");
+    const hourlyRetryEntries = await this.ctx.storage.list({ prefix: "social:hourly:auto_retry:" });
+    const pendingHourlyRetries = [...hourlyRetryEntries.entries()]
+      .filter(([, job]) => job?.status === "pending")
+      .sort((a, b) => Number(a[1].next_attempt_at || 0) - Number(b[1].next_attempt_at || 0));
+
+    if (hourlyEnabledForRetry !== false && pendingHourlyRetries.length) {
+      const [retryKey, retryJob] = pendingHourlyRetries[0];
+      const dueAt = Number(retryJob.next_attempt_at || 0);
+      if (!dueAt || dueAt <= now) {
+        try {
+          const retryResult = await runHourlyAutoPublish(
+            this,
+            { scheduled_at: Number(retryJob.scheduled_at || now), slot: retryJob.slot, retry: true },
+            { geminiGenerate, tavilySearch, telegram }
+          );
+          if (retryResult?.published || retryResult?.pending_approval || retryResult?.reason === "slot_already_published") {
+            await this.ctx.storage.delete(retryKey);
+          } else if (retryResult?.reason === "interval_not_elapsed" && Number(retryResult.next_at || 0) > now) {
+            await this.ctx.storage.put(retryKey, {
+              ...retryJob, status: "pending",
+              next_attempt_at: Number(retryResult.next_at),
+              updated_at: new Date().toISOString()
+            });
+          } else if (retryResult?.reason !== "retry_scheduled") {
+            const attempt = Number(retryJob.attempt || 0) + 1;
+            const delay = Math.min(30 * 60 * 1000, 2 * 60 * 1000 * (2 ** Math.min(attempt - 1, 3)));
+            await this.ctx.storage.put(retryKey, {
+              ...retryJob, status: "pending", attempt,
+              last_error: String(retryResult?.detail || retryResult?.reason || "Hourly retry did not publish").slice(0, 700),
+              next_attempt_at: Date.now() + delay,
+              updated_at: new Date().toISOString()
+            });
+          }
+        } catch (retryError) {
+          const attempt = Number(retryJob.attempt || 0) + 1;
+          const rateLimited = /429|quota|rate.?limit|resource_exhausted/iu.test(String(retryError.message || retryError));
+          const baseDelay = rateLimited ? 5 * 60 * 1000 : 2 * 60 * 1000;
+          const delay = Math.min(30 * 60 * 1000, baseDelay * (2 ** Math.min(attempt - 1, 3)));
+          await this.ctx.storage.put(retryKey, {
+            ...retryJob, status: "pending", attempt,
+            last_error: String(retryError.message || retryError).slice(0, 700),
+            next_attempt_at: Date.now() + delay,
+            updated_at: new Date().toISOString()
+          });
+        }
+      } else if (!nextAlarmAt || dueAt < nextAlarmAt) {
+        nextAlarmAt = dueAt;
+      }
+    }
+
     // Durable topic generation survives request/cron time limits. Each alarm performs
     // one generation + moderation attempt, then persists the next retry time.
     const topicJobs = await this.ctx.storage.list({ prefix: "topic-generation:" });
@@ -3366,6 +3420,17 @@ export class ApprovalCoordinator {
     }
 
     await this.flushOutbox();
+
+    const remainingHourlyRetries = await this.ctx.storage.list({ prefix: "social:hourly:auto_retry:" });
+    const nextHourlyRetry = hourlyEnabledForRetry === false ? 0 : [...remainingHourlyRetries.values()]
+      .filter(job => job?.status === "pending")
+      .reduce((earliest, job) => {
+        const dueAt = Number(job.next_attempt_at || 0) || (Date.now() + 1000);
+        return !earliest || dueAt < earliest ? dueAt : earliest;
+      }, 0);
+    if (nextHourlyRetry && (!nextAlarmAt || nextHourlyRetry < nextAlarmAt)) {
+      nextAlarmAt = Math.max(Date.now() + 1000, nextHourlyRetry);
+    }
 
     const remainingJobs = await this.ctx.storage.list({ prefix: "topic-generation:" });
     const nextPendingJob = [...remainingJobs.values()]
