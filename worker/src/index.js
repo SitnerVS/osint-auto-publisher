@@ -1824,7 +1824,7 @@ export class ApprovalCoordinator {
             recovered = true;
           }
           if (recovered) await this.ctx.storage.setAlarm(Date.now() + 1000);
-          result = await runHourlyAutoPublish(this, payload, { geminiGenerate, tavilySearch, telegram });
+          result = await runHourlyAutoPublish(this, payload, { geminiGenerate, groqGenerate, tavilySearch, telegram });
         }
       } else if (path === "/hourly-trend") {
         const hourlyEnabled = await this.ctx.storage.get("social:hourly:enabled");
@@ -3389,7 +3389,7 @@ export class ApprovalCoordinator {
           const retryResult = await runHourlyAutoPublish(
             this,
             { scheduled_at: Number(retryJob.scheduled_at || now), slot: retryJob.slot, retry: true },
-            { geminiGenerate, tavilySearch, telegram }
+            { geminiGenerate, groqGenerate, tavilySearch, telegram }
           );
           if (retryResult?.published || retryResult?.pending_approval || retryResult?.reason === "slot_already_published") {
             await this.ctx.storage.delete(retryKey);
