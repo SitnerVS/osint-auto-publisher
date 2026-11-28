@@ -968,90 +968,102 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const specialHistoryValue = await storage.get("social:hourly:auto_history");
       const specialHistory = Array.isArray(specialHistoryValue) ? specialHistoryValue : [];
       const recentSpecial = specialHistory.slice(-45).map(item => String(item.text || "").slice(0, 300));
-      const prompt = specialCategory === "Цитаты великих людей"
-        ? "Ты — редактор открытой, всемирной рубрики цитат для русскоязычного Threads. Подготовь ОДНУ подлинную, дословно точную, вдохновляющую или мудрую цитату любого известного человека. КРУГ АВТОРОВ НЕ ОГРАНИЧЕН: не используй фиксированный список, каталог, белый список, заранее заданные категории, страны, эпохи или профессии. Подходят любые известные люди без исключений по сфере деятельности и происхождению: предприниматели, бизнесмены, инвесторы, философы, учёные, изобретатели, инженеры, спортсмены, тренеры, актёры, режиссёры, музыканты, художники, писатели, поэты, журналисты, исследователи, общественные деятели, правозащитники, политики, государственные деятели, религиозные и духовные лидеры и любые другие исторические или современные личности. Выбирай автора свободно, исходя из силы и уместности самой цитаты; не чередуй профессии по расписанию и не отдавай автоматического предпочтения писателям. Не исключай автора только потому, что он уже появлялся ранее. Не повторяй сами цитаты и близкие по смыслу формулировки из недавних публикаций: " + JSON.stringify(recentSpecial) + ". Ищи цитаты по всему миру, на разных языках и из разных эпох; приоритет — первоисточники: книги, речи, письма, интервью, архивы и официальные сайты. Используй только цитаты, авторство и точную формулировку которых можно подтвердить поиском. Не используй популярные, но спорные атрибуции и не приписывай человеку слова, которые он не произносил. Если не можешь подтвердить цитату, верни объект с полем skip=true. Верни только поля quote и author. Не добавляй пояснений, хештегов, ссылок, эмодзи или вступления."
+      const basePrompt = specialCategory === "Цитаты великих людей"
+        ? "Ты — редактор открытой, всемирной рубрики цитат для русскоязычного Threads. Подготовь ОДНУ подлинную, дословно точную, вдохновляющую или мудрую цитату любого известного человека. КРУГ АВТОРОВ НЕ ОГРАНИЧЕН: не используй фиксированный список, каталог, белый список, заранее заданные категории, страны, эпохи или профессии. Подходят любые известные люди без исключений по сфере деятельности и происхождению. Выбирай автора свободно, исходя из силы и уместности самой цитаты; не чередуй профессии по расписанию и не отдавай автоматического предпочтения писателям. Не исключай автора только потому, что он уже появлялся ранее. Не повторяй сами цитаты и близкие по смыслу формулировки из недавних публикаций: " + JSON.stringify(recentSpecial) + ". Ищи цитаты по всему миру, на разных языках и из разных эпох; приоритет — первоисточники: книги, речи, письма, интервью, архивы и официальные сайты. Используй поиск и возвращай только точную цитату, авторство которой подтверждается найденными страницами. Не используй популярные, но спорные атрибуции и не приписывай человеку слова, которые он не произносил. Если не можешь подтвердить цитату, верни объект с полем skip=true. Верни только поля quote и author в JSON. Не добавляй пояснений, хештегов, ссылок, эмодзи или вступления."
         : "Ты — автор тёплой ностальгической рубрики для российских миллениалов о детстве в 1990-е и 2000-е годы. Напиши РОВНО ОДНО короткое предложение-вопрос, обращённое к читателю: начни естественно с «Помните, как…?» или «А помните…?». Вопрос должен вызывать узнаваемое тёплое воспоминание о конкретной детали детства в России: мультфильмы по расписанию, кассеты, двор, жвачки и вкладыши, приставки, школьные записки, киоски, летние каникулы, игры с друзьями. Только одно предложение и один вопросительный знак в конце; никаких вторых предложений, пояснений или вступлений. До 220 символов. Без хештегов, ссылок, упоминаний и эмодзи. Не повторяй недавние публикации: " + JSON.stringify(recentSpecial) + ".";
       let specialText = "";
       let specialSource = null;
-      try {
-        let generated;
-        if (specialCategory === "Цитаты великих людей") {
+      if (specialCategory === "Цитаты великих людей") {
+        const rejectedQuotes = [];
+        let lastQuoteError = "";
+        for (let quoteAttempt = 1; quoteAttempt <= 8 && !specialText; quoteAttempt++) {
+          const quotePrompt = basePrompt +
+            "\\n\\nПопытка " + quoteAttempt + " из 8. Не используй ни одну из уже отклонённых цитат и не меняй в них только автора или отдельные слова. " +
+            "Уже отклонённые варианты и причины: " + JSON.stringify(rejectedQuotes) +
+            ". Выбери другого автора И другую цитату. Если точная атрибуция не подтверждается результатами поиска, верни {\\\"skip\\\":true}.";
           try {
-            generated = await deps.geminiGenerate(env, prompt, {
+            let generated = await deps.geminiGenerate(env, quotePrompt, {
               task: "hourly_verified_inspirational_quote",
-              temperature: 0.25,
-              maxOutputTokens: 500,
+              temperature: Math.min(0.75, 0.3 + quoteAttempt * 0.05),
+              maxOutputTokens: 700,
               responseMimeType: "application/json",
-              googleSearch: true
+              googleSearch: true,
+              returnMetadata: true
             });
-          } catch (geminiError) {
-            // Gemini free-tier quota can remain exhausted for the rest of the day.
-            // Fall back to the independent Groq browser-search path instead of
-            // repeatedly waiting on a provider that cannot serve this slot.
-            if (typeof deps.groqGenerate !== "function") throw geminiError;
-            console.warn("Gemini quote generation failed; switching to Groq web-search fallback:", {
-              reason: String(geminiError.message || geminiError).slice(0, 300)
-            });
-            const fallback = await deps.groqGenerate(env, prompt +
-              '\n\nВАЖНО: используй browser search. Верни только цитату, которую можно подтвердить найденными страницами. Не угадывай и не реконструируй цитату. Если точная формулировка и автор не подтверждены результатами поиска, верни {"skip":true}.',
-              {
-                task: "hourly_verified_inspirational_quote_fallback",
-                temperature: 0.2,
-                maxOutputTokens: 900,
-                browserSearch: true,
-                returnMetadata: true
-              });
-            if (!fallback || !fallback.text || !Array.isArray(fallback.sources) || fallback.sources.length === 0) {
-              throw new Error("Резервный поиск Groq не вернул подтверждающие источники");
+            let generatedText = typeof generated === "string" ? generated : String(generated?.text || "");
+            let generatedSources = Array.isArray(generated?.sources) ? generated.sources : [];
+
+            // A generated quote without returned search evidence is not publishable.
+            // Try the independent Groq browser-search route before rejecting this candidate.
+            if (!generatedSources.length && typeof deps.groqGenerate === "function") {
+              const fallback = await deps.groqGenerate(env,
+                quotePrompt + "\\nИспользуй browser search и верни только JSON с точной цитатой и автором.",
+                {
+                  task: "hourly_verified_inspirational_quote_fallback",
+                  temperature: 0.2,
+                  maxOutputTokens: 1100,
+                  browserSearch: true,
+                  returnMetadata: true
+                });
+              if (fallback?.text && Array.isArray(fallback.sources) && fallback.sources.length) {
+                generatedText = fallback.text;
+                generatedSources = fallback.sources;
+              }
             }
-            generated = fallback.text;
-            specialSource = [...new Set(fallback.sources)].slice(0, 5);
+
+            if (!generatedSources.length) {
+              throw new Error("Поиск не вернул источники для подтверждения цитаты");
+            }
+            const parsed = parseJsonObject(generatedText);
+            if (parsed.skip === true) throw new Error("Поиск не подтвердил точную цитату и авторство");
+            const quote = normalizeText(parsed.quote || "");
+            const author = normalizeText(parsed.author || "");
+            if (!quote || !author || quote.length > 300 || author.length > 90 || /[#@]|https?:\\/\\//iu.test(quote + author)) {
+              throw new Error("Цитата или имя автора не прошли проверку формата");
+            }
+            const candidateText = "«" + quote.replace(/^«|»$/gu, "") + "»\\n\\n— " + author;
+            if (isDuplicateHourlyStory(candidateText, [], specialHistory)) {
+              rejectedQuotes.push({ quote: quote.slice(0, 220), author, reason: "цитата или близкая формулировка уже публиковалась" });
+              lastQuoteError = "Цитата уже публиковалась недавно";
+              console.warn("Hourly quote candidate rejected as duplicate:", { quoteAttempt, author });
+              continue;
+            }
+            specialText = candidateText;
+            specialSource = [...new Set(generatedSources)].slice(0, 5);
+          } catch (quoteError) {
+            lastQuoteError = String(quoteError.message || quoteError).slice(0, 300);
+            rejectedQuotes.push({ reason: lastQuoteError });
+            console.warn("Hourly quote candidate rejected; generating another:", { quoteAttempt, reason: lastQuoteError });
           }
-        } else {
-          generated = await deps.geminiGenerate(env, prompt, {
+        }
+        if (!specialText) {
+          throw new Error("Не удалось подобрать новую цитату после 8 попыток генерации и поиска. Последняя причина: " + lastQuoteError);
+        }
+      } else {
+        try {
+          const generated = await deps.geminiGenerate(env, basePrompt, {
             task: "hourly_childhood_nostalgia",
             temperature: 0.85,
             maxOutputTokens: 500,
             responseMimeType: "application/json"
           });
-        }
-        const parsed = parseJsonObject(generated);
-        if (parsed.skip === true) throw new Error("Не удалось подтвердить точную цитату и авторство");
-        if (specialCategory === "Цитаты великих людей") {
-          const quote = normalizeText(parsed.quote || "");
-          const author = normalizeText(parsed.author || "");
-          if (!quote || !author || quote.length > 300 || author.length > 90 || /[#@]|https?:\/\//iu.test(quote + author)) {
-            throw new Error("Цитата или имя автора не прошли проверку формата");
-          }
-          if (isDuplicateHourlyStory("«" + quote + "»\n\n— " + author, [], specialHistory)) {
-            throw new Error("Цитата уже публиковалась недавно");
-          }
-          specialText = "«" + quote.replace(/^«|»$/gu, "") + "»\n\n— " + author;
-        } else {
+          const parsed = parseJsonObject(generated);
           specialText = normalizeText(parsed.text || parsed.post || "");
-          const questionMarks = (specialText.match(/\?/gu) || []).length;
-          const sentenceCount = (specialText.match(/[.!?]+(?=\s|$)/gu) || []).length;
+          const questionMarks = (specialText.match(/\\?/gu) || []).length;
+          const sentenceCount = (specialText.match(/[.!?]+(?=\\s|$)/gu) || []).length;
           if (!specialText || specialText.length > 220 || !/[А-Яа-яЁё]/u.test(specialText) ||
-              /[#@]|https?:\/\//iu.test(specialText) || !specialText.endsWith("?") ||
+              /[#@]|https?:\\/\\//iu.test(specialText) || !specialText.endsWith("?") ||
               questionMarks !== 1 || sentenceCount !== 1) {
             throw new Error("Ностальгический пост должен быть ровно одним предложением-вопросом");
           }
-        }
-      } catch (generationError) {
-        if (specialCategory === "Цитаты великих людей") {
-          throw new Error("Не удалось получить новую цитату с подтверждаемым авторством; публикация остановлена без подстановки ограниченного резервного списка. " + String(generationError.message || generationError).slice(0, 250));
-        } else {
+        } catch (generationError) {
           specialText = selectChildhoodNostalgia(specialHistory, scheduledAt);
           console.warn("Gemini unavailable; selected original childhood nostalgia fallback:", {
             reason: String(generationError.message || generationError).slice(0, 250)
           });
         }
-      }
-      if (isDuplicateHourlyStory(specialText, [], specialHistory)) {
-        if (specialCategory === "Тёплые воспоминания о детстве") {
+        if (isDuplicateHourlyStory(specialText, [], specialHistory)) {
           specialText = selectChildhoodNostalgia(specialHistory, scheduledAt);
-        } else {
-          throw new Error("Обнаружен повтор недавней публикации в этой рубрике");
         }
       }
       const published = await publishThreads(env, token, specialText);
@@ -1386,6 +1398,8 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           "\nСледующая попытка: " + new Date(retry.next_attempt_at).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })
       });
     }
-    return { ok: false, skipped: true, reason: "retry_scheduled", retry_attempt: retry.attempt, retry_at: retry.next_attempt_at, detail: String(error.message || error) };
+    // The retry is durably queued; report this as handled so the scheduler
+    // does not turn a recoverable generation failure into a misleading HTTP 403.
+    return { ok: true, skipped: true, retry_scheduled: true, reason: "retry_scheduled", retry_attempt: retry.attempt, retry_at: retry.next_attempt_at, detail: String(error.message || error) };
   }
 }
