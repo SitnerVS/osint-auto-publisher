@@ -179,7 +179,7 @@ async function telegram(env, method, data) {
 // GEMINI AI
 // ======================================================
 
-async function geminiGenerate(env, prompt, options = {}) {
+async function geminiGeneratePrimary(env, prompt, options = {}) {
   if (!env.GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY is not configured");
   }
@@ -522,6 +522,49 @@ async function groqGenerate(env, prompt, options = {}) {
     return { text: answer, sources: [...new Set(sources)] };
   }
   return answer;
+}
+
+
+/**
+ * Unified AI provider with automatic failover.
+ * Gemini remains primary; Groq receives the identical prompt/options whenever
+ * Gemini is unavailable, rate-limited (including exhausted daily quota), or
+ * returns an unusable response. All editorial and utility generation paths
+ * call this wrapper, so fallback is not limited to hourly content.
+ */
+async function geminiGenerate(env, prompt, options = {}) {
+  try {
+    return await geminiGeneratePrimary(env, prompt, options);
+  } catch (geminiError) {
+    if (!env.GROQ_API_KEY) {
+      console.error("AI provider fallback unavailable: GROQ_API_KEY is missing", {
+        task: options.task || "generation",
+        gemini_error: String(geminiError.message || geminiError).slice(0, 500)
+      });
+      throw geminiError;
+    }
+    console.warn("AI provider failover: Gemini -> Groq", {
+      task: options.task || "generation",
+      gemini_error: String(geminiError.message || geminiError).slice(0, 500)
+    });
+    try {
+      return await groqGenerate(env, prompt, {
+        ...options,
+        maxAttempts: Math.max(2, Number(options.groqMaxAttempts) || 2),
+        maxOutputTokens: Math.max(1200, Number(options.maxOutputTokens) || 0),
+        browserSearch: options.browserSearch === true
+      });
+    } catch (groqError) {
+      console.error("Both AI providers failed", {
+        task: options.task || "generation",
+        gemini_error: String(geminiError.message || geminiError).slice(0, 350),
+        groq_error: String(groqError.message || groqError).slice(0, 500)
+      });
+      throw new Error("Gemini failed and automatic Groq fallback also failed. Gemini: " +
+        String(geminiError.message || geminiError).slice(0, 250) +
+        ". Groq: " + String(groqError.message || groqError).slice(0, 350));
+    }
+  }
 }
 
 // APPROVAL MESSAGE
