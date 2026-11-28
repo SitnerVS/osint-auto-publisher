@@ -980,7 +980,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           const quotePrompt = basePrompt +
             "\n\nПопытка " + quoteAttempt + " из 8. Не используй ни одну из уже отклонённых цитат и не меняй в них только автора или отдельные слова. " +
             "Уже отклонённые варианты и причины: " + JSON.stringify(rejectedQuotes) +
-            ". Выбери другого автора И другую цитату. Если точная атрибуция не подтверждается результатами поиска, верни {\\"skip\\":true}.";
+            ". Выбери другого автора И другую цитату. Если точная атрибуция не подтверждается результатами поиска, верни JSON-объект с полем skip=true.";
           try {
             let generated = await deps.geminiGenerate(env, quotePrompt, {
               task: "hourly_verified_inspirational_quote",
