@@ -7,7 +7,11 @@ Threads-only editorial publishing workflow for OSINTNER.
 - Topic rotation is sequential and continuous: OSINT → Комплаенс → Антифрод → repeat.
 - Each publication is one standalone Russian text-only Threads post (up to 500 characters).
 - No image, video, carousel, hashtags or multi-post thread generation.
-- The hourly humor stream remains separate from the editorial approval workflow.
+- A separate autonomous Threads stream publishes one OSINT/compliance/anti-fraud post every hour (24 topic posts/day, Europe/Moscow), without Telegram approval.
+- The hourly topic track rotates sequentially across OSINT → Комплаенс → Антифрод.
+- Five additional posts run independently of the hourly topic stream: famous-person quotes at 08:00, 14:00 and 20:00; Russian millennial childhood nostalgia at 11:00 and 17:00.
+- Each nostalgia post must be exactly one short Russian sentence phrased as a question and ending with one question mark.
+- If fresh sources are unavailable, the hourly topic stream publishes original evergreen professional content instead of waiting for approval.
 
 ## Editorial approval
 - Each material passes topic approval, text approval and final publication approval in Telegram.
