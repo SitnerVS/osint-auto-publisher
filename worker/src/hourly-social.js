@@ -803,34 +803,34 @@ const HOURLY_EDITORIAL_TRACKS = [
 ];
 
 const HOURLY_CHILDHOOD_NOSTALGIA = [
-  "Летом мы уходили гулять после завтрака и возвращались, когда во дворе зажигались фонари. Домой звали не сообщением, а голосом из открытого окна.",
-  "У каждого двора была своя компания, свои правила и своё место встречи. Стоило выйти из подъезда — и уже находилось, чем заняться до самого вечера.",
-  "Кассету приходилось перематывать карандашом, если плеер начинал капризничать. И почему-то это казалось совершенно обычной частью прослушивания любимой музыки.",
-  "Перед началом мультфильмов можно было успеть сделать всё на свете — лишь бы не пропустить заставку. А если опоздал, приходилось ждать следующего показа.",
-  "Фишки, вкладыши и фантики иногда ценились почти как настоящая валюта. Обмен во дворе требовал переговоров, аргументов и умения вовремя остановиться.",
-  "В гостях у друзей время шло незаметно: настольные игры, конструктор, мультики и бесконечные разговоры. Самым сложным было услышать, что пора домой.",
-  "Новый школьный пенал или яркая ручка могли поднять настроение на целую неделю. Мы умели радоваться маленьким обновкам без особого повода.",
-  "На каникулах день казался длиннее, а планов было меньше. Главное — найти друзей во дворе, а дальше приключения придумывались сами.",
-  "Когда во дворе начиналась игра, команды собирались за пару минут. Капитанов выбирали быстро, правила обсуждали громко, а спорили так, будто шёл финал чемпионата.",
-  "Запах свежих тетрадей и учебников означал начало нового школьного года. Даже если учиться не очень хотелось, выбирать обложки было приятно.",
-  "Телефонный разговор с другом иногда начинался с вопроса: «А он дома?» И дальше трубку передавали по цепочке, пока нужный человек не появлялся.",
-  "Видеокассету с любимым фильмом могли пересматривать столько раз, что отдельные сцены запоминались наизусть. И всё равно хотелось включить её ещё раз.",
-  "Зимой санки, снежки и ледяные горки занимали весь свободный день. Возвращались домой с красными щеками и варежками, которые никак не хотели высыхать.",
-  "Перед поездкой к бабушке собирали целую маленькую экспедицию: любимые игрушки, книжку и что-нибудь вкусное в дорогу. Само ожидание поездки уже было событием.",
-  "Во дворе всегда находился кто-то, у кого была новая игрушка или необычная находка. Её рассматривали всем кругом, а потом начинались переговоры об обмене.",
-  "После школы хотелось скорее оставить портфель дома и выбежать на улицу. Домашние задания могли подождать хотя бы ещё один час.",
-  "Утренние выходные начинались с телевизора и неспешного завтрака. Никто никуда не торопился, и впереди был целый день.",
-  "Бумажные записки передавали через весь класс, стараясь не попасться учителю. Иногда важнее самого сообщения было то, как ловко оно добиралось до адресата.",
-  "Покупка мороженого по дороге домой превращалась в маленький праздник. Особенно если удавалось выбрать именно тот вкус, который давно хотелось.",
-  "В детстве дорога до знакомого места могла казаться целым путешествием. По пути обязательно находилось что-то интересное, что взрослые обычно проходили мимо.",
-  "Собираясь играть, мы редко договаривались заранее о подробностях. Достаточно было встретиться во дворе — и у каждого уже находилась идея.",
-  "Любимую книгу или журнал хотелось перечитывать и показывать друзьям. Иногда одна картинка могла надолго стать темой разговоров.",
-  "Вечером двор постепенно пустел, но никто не хотел расходиться первым. Ещё один раунд, ещё одна история — и только потом пора домой.",
-  "Самые яркие воспоминания детства часто состоят из простых вещей: знакомого двора, голосов друзей и длинного летнего вечера. Тогда мы не думали, что однажды будем так тепло это вспоминать."
+  "Помните, как по выходным ждали любимые мультфильмы по телевизору?",
+  "Помните, как делили один Snickers на всю компанию?",
+  "Помните, как перематывали аудиокассету карандашом, чтобы найти любимую песню?",
+  "Помните, как во двор звали друзей громким голосом из открытого окна?",
+  "Помните, как собирали вкладыши от жвачки и менялись ими на переменах?",
+  "Помните, как ждали заставку любимого мультфильма и боялись пропустить первые секунды?",
+  "Помните, как записывали песни с радио на кассету и ловили нужный момент?",
+  "Помните, как выбирали вкусную газировку и берегли её до конца прогулки?",
+  "Помните, как после школы бросали портфель и сразу бежали во двор?",
+  "Помните, как спорили, кому достанется следующий ход в приставке?",
+  "Помните, как передавали записки по всему классу, чтобы учитель не заметил?",
+  "Помните, как выбирали наклейки и вкладыши для обмена с друзьями?",
+  "Помните, как летом гуляли до фонарей и не хотели расходиться по домам?",
+  "Помните, как ждали выходных, чтобы с утра включить телевизор и мультики?",
+  "Помните, как покупали жвачку не только ради вкуса, но и ради вкладыша?",
+  "Помните, как договаривались встретиться во дворе без телефона и точного времени?",
+  "Помните, как переписывали любимые песни в тетрадь или на отдельный листок?",
+  "Помните, как всей компанией выбирали фильм на видеокассете у друзей?",
+  "Помните, как радовались новой игре, журналу или яркой ручке из киоска?",
+  "Помните, как зимой катались с горки, пока варежки совсем не промокали?",
+  "Помните, как передавали друг другу фишки, карточки и секретные коллекции?",
+  "Помните, как ждали любимую передачу, потому что посмотреть её позже было нельзя?",
+  "Помните, как звали друзей гулять простым вопросом: «Ты выйдешь?»",
+  "Помните, как целый день во дворе превращался в приключение без всякого плана?"
 ];
 
-async function scheduleHourlyAutoRetry(storage, slot, scheduledAt, error) {
-  const key = "social:hourly:auto_retry:" + slot;
+async function scheduleHourlyAutoRetry(storage, slot, scheduledAt, error, stream = "topic") {
+  const key = "social:hourly:auto_retry:" + slot + (stream === "special" ? ":special" : "");
   const previous = await storage.get(key);
   const attempt = Number(previous?.attempt || 0) + 1;
   const message = String(error?.message || error || "Unknown hourly publication failure").slice(0, 700);
@@ -841,6 +841,7 @@ async function scheduleHourlyAutoRetry(storage, slot, scheduledAt, error) {
   await storage.put(key, {
     status: "pending",
     slot,
+    stream,
     scheduled_at: scheduledAt,
     attempt,
     last_error: message,
@@ -871,8 +872,13 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     ? payload.slot
     : null;
   const slot = requestedSlot || new Date(scheduledAt).toISOString().slice(0, 13);
-  const slotKey = "social:hourly:auto_slot:" + slot;
-  const retryKey = "social:hourly:auto_retry:" + slot;
+  const stream = payload?.stream === "special" ? "special" : "topic";
+  const streamSuffix = stream === "special" ? ":special" : "";
+  const slotKey = "social:hourly:auto_slot:" + slot + streamSuffix;
+  const retryKey = "social:hourly:auto_retry:" + slot + streamSuffix;
+  const lastPublishedKey = stream === "special"
+    ? "social:hourly:auto_special_last_published_at"
+    : "social:hourly:auto_last_published_at";
   if (payload?.action === "approve" || payload?.action === "reject") {
     const pending = await storage.get(slotKey);
     if (!pending || pending.status !== "awaiting_approval") {
@@ -894,7 +900,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const history = await storage.get("social:hourly:auto_history") || [];
       history.push(record);
       await storage.put("social:hourly:auto_history", history.slice(-300));
-      await storage.put("social:hourly:auto_last_published_at", Date.now());
+      await storage.put(lastPublishedKey, Date.now());
       await storage.put(slotKey, record);
       return { ok: true, published: true, text: pending.text, permalink: published.permalink, slot };
     } catch (error) {
@@ -907,20 +913,17 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     await storage.delete(retryKey);
     return { ok: true, skipped: true, reason: "slot_already_published" };
   }
-  if (existing?.status === "awaiting_approval") {
-    return { ok: true, pending_approval: true, skipped: true, reason: "slot_waiting_for_user_decision", slot };
-  }
   if (existing?.status === "rejected") return { ok: true, skipped: true, reason: "slot_rejected", slot };
   if (existing?.status === "started" && Date.now() - Number(existing.started_at_ms || 0) < 10 * 60 * 1000) {
     return { ok: true, skipped: true, reason: "slot_in_progress" };
   }
-  const lastPublishedAt = Number(await storage.get("social:hourly:auto_last_published_at") || 0);
+  const lastPublishedAt = Number(await storage.get(lastPublishedKey) || 0);
   if (payload?.retry !== true && lastPublishedAt && Date.now() - lastPublishedAt < 55 * 60 * 1000) {
     return { ok: true, skipped: true, reason: "interval_not_elapsed", next_at: lastPublishedAt + 60 * 60 * 1000 };
   }
   const token = await storage.get("threads:oauth:token");
   if (!token?.access_token || !token?.user_id || Number(token.expires_at || 0) <= Date.now()) {
-    const retry = await scheduleHourlyAutoRetry(storage, slot, scheduledAt, "Threads access token отсутствует или истёк");
+    const retry = await scheduleHourlyAutoRetry(storage, slot, scheduledAt, "Threads access token отсутствует или истёк", stream);
     await storage.put(slotKey, { status: "failed", reason: "threads_not_connected", retry_attempt: retry.attempt, next_attempt_at: retry.next_attempt_at, created_at: new Date().toISOString() });
     if (retry.attempt === 1) {
       await deps.telegram(env, "sendMessage", {
@@ -946,10 +949,12 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       11: "Тёплые воспоминания о детстве",
       14: "Цитаты великих людей",
       17: "Тёплые воспоминания о детстве",
-      20: "Цитаты великих людей",
-      23: "Тёплые воспоминания о детстве"
+      20: "Цитаты великих людей"
     };
-    const specialCategory = specialSlots[moscowHour];
+    const specialCategory = stream === "special" ? specialSlots[moscowHour] : "";
+    if (stream === "special" && !specialCategory) {
+      return { ok: true, skipped: true, reason: "no_special_slot", slot };
+    }
     if (specialCategory) {
       track = {
         name: specialCategory,
@@ -965,7 +970,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const recentSpecial = specialHistory.slice(-45).map(item => String(item.text || "").slice(0, 300));
       const prompt = specialCategory === "Цитаты великих людей"
         ? "Ты — редактор открытой, всемирной рубрики цитат для русскоязычного Threads. Подготовь ОДНУ подлинную, дословно точную, вдохновляющую или мудрую цитату любого известного человека. КРУГ АВТОРОВ НЕ ОГРАНИЧЕН: не используй фиксированный список, каталог, белый список, заранее заданные категории, страны, эпохи или профессии. Подходят любые известные люди без исключений по сфере деятельности и происхождению: предприниматели, бизнесмены, инвесторы, философы, учёные, изобретатели, инженеры, спортсмены, тренеры, актёры, режиссёры, музыканты, художники, писатели, поэты, журналисты, исследователи, общественные деятели, правозащитники, политики, государственные деятели, религиозные и духовные лидеры и любые другие исторические или современные личности. Выбирай автора свободно, исходя из силы и уместности самой цитаты; не чередуй профессии по расписанию и не отдавай автоматического предпочтения писателям. Не исключай автора только потому, что он уже появлялся ранее. Не повторяй сами цитаты и близкие по смыслу формулировки из недавних публикаций: " + JSON.stringify(recentSpecial) + ". Ищи цитаты по всему миру, на разных языках и из разных эпох; приоритет — первоисточники: книги, речи, письма, интервью, архивы и официальные сайты. Используй только цитаты, авторство и точную формулировку которых можно подтвердить поиском. Не используй популярные, но спорные атрибуции и не приписывай человеку слова, которые он не произносил. Если не можешь подтвердить цитату, верни объект с полем skip=true. Верни только поля quote и author. Не добавляй пояснений, хештегов, ссылок, эмодзи или вступления."
-        : "Ты — автор тёплой ностальгической рубрики о детстве. Напиши один короткий, добрый, живой пост-воспоминание о жизни детей в 1990-е годы или просто о детстве: двор, друзья, игры, школьные мелочи, телевизор, мультфильмы, кассеты, вкладыши, фишки, фантики, летние каникулы, семейные привычки. Используй узнаваемые бытовые детали, но не выдавай выдуманное за универсальный факт. Можно начать с А помните. Тон тёплый, светлый, без грусти по нынешним детям и без противопоставления поколений. 1–3 коротких предложения, до 350 символов. Не задавай вопрос в каждом посте, чередуй повествовательные форматы. Без хештегов, ссылок, упоминаний и эмодзи. Не повторяй недавние публикации: " + JSON.stringify(recentSpecial) + ".";
+        : "Ты — автор тёплой ностальгической рубрики для российских миллениалов о детстве в 1990-е и 2000-е годы. Напиши РОВНО ОДНО короткое предложение-вопрос, обращённое к читателю: начни естественно с «Помните, как…?» или «А помните…?». Вопрос должен вызывать узнаваемое тёплое воспоминание о конкретной детали детства в России: мультфильмы по расписанию, кассеты, двор, жвачки и вкладыши, приставки, школьные записки, киоски, летние каникулы, игры с друзьями. Только одно предложение и один вопросительный знак в конце; никаких вторых предложений, пояснений или вступлений. До 220 символов. Без хештегов, ссылок, упоминаний и эмодзи. Не повторяй недавние публикации: " + JSON.stringify(recentSpecial) + ".";
       let specialText = "";
       let specialSource = null;
       try {
@@ -1024,8 +1029,12 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           specialText = "«" + quote.replace(/^«|»$/gu, "") + "»\n\n— " + author;
         } else {
           specialText = normalizeText(parsed.text || parsed.post || "");
-          if (!specialText || specialText.length > 350 || !/[А-Яа-яЁё]/u.test(specialText) || /[#@]|https?:\/\//iu.test(specialText)) {
-            throw new Error("Ностальгический пост не прошёл проверку формата");
+          const questionMarks = (specialText.match(/\?/gu) || []).length;
+          const sentenceCount = (specialText.match(/[.!?]+(?=\s|$)/gu) || []).length;
+          if (!specialText || specialText.length > 220 || !/[А-Яа-яЁё]/u.test(specialText) ||
+              /[#@]|https?:\/\//iu.test(specialText) || !specialText.endsWith("?") ||
+              questionMarks !== 1 || sentenceCount !== 1) {
+            throw new Error("Ностальгический пост должен быть ровно одним предложением-вопросом");
           }
         }
       } catch (generationError) {
@@ -1058,7 +1067,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
       const publishHistory = await storage.get("social:hourly:auto_history") || [];
       publishHistory.push(record);
       await storage.put("social:hourly:auto_history", publishHistory.slice(-300));
-      await storage.put("social:hourly:auto_last_published_at", Date.now());
+      await storage.put(lastPublishedKey, Date.now());
       await storage.put(slotKey, { status: "published", ...record });
       await storage.delete(retryKey);
       await deps.telegram(env, "sendMessage", {
@@ -1335,25 +1344,6 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     if (!duplicateGuardPassed) {
       throw new Error("Не удалось подготовить неповторяющийся пост даже в резервном редакционном режиме. " + lastGenerationError);
     }
-    if (originalOnly && selectedSources.length === 0) {
-      const pendingRecord = {
-        slot, category: track.name, geo_scope: geoScope, text,
-        source_urls: [], source_domains: [], source_titles: [],
-        status: "awaiting_approval", created_at: new Date().toISOString()
-      };
-      await storage.put(slotKey, pendingRecord);
-      await deps.telegram(env, "sendMessage", {
-        chat_id: env.TELEGRAM_CHAT_ID,
-        text: "НУЖНО СОГЛАСОВАНИЕ\nПричина: не удалось получить подходящий источник. Подготовлен авторский материал без неподтверждённых текущих фактов.\nНаправление: " + track.name + "\n\n" + text,
-        reply_markup: {
-          inline_keyboard: [[
-            { text: "Согласовать и опубликовать", callback_data: "hourly_review:approve:" + slot },
-            { text: "Отклонить", callback_data: "hourly_review:reject:" + slot }
-          ]]
-        }
-      });
-      return { ok: true, pending_approval: true, category: track.name, text, slot };
-    }
     const published = await publishThreads(env, token, text);
     const at = new Date().toISOString();
     const record = {
@@ -1366,7 +1356,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     const publishHistory = await storage.get("social:hourly:auto_history") || [];
     publishHistory.push(record);
     await storage.put("social:hourly:auto_history", publishHistory.slice(-100));
-    await storage.put("social:hourly:auto_last_published_at", Date.now());
+    await storage.put(lastPublishedKey, Date.now());
     await storage.put("social:hourly:auto_last_geo_scope", geoScope);
     await storage.put(slotKey, { status: "published", ...record });
     await storage.delete(retryKey);
@@ -1377,7 +1367,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
     });
     return { ok: true, published: true, category: track.name, text, permalink: published.permalink };
   } catch (error) {
-    const retry = await scheduleHourlyAutoRetry(storage, slot, scheduledAt, error);
+    const retry = await scheduleHourlyAutoRetry(storage, slot, scheduledAt, error, stream);
     await storage.put(slotKey, {
       status: "failed", track: track.name,
       error: String(error.message || error).slice(0, 700),
