@@ -978,9 +978,9 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
         let lastQuoteError = "";
         for (let quoteAttempt = 1; quoteAttempt <= 8 && !specialText; quoteAttempt++) {
           const quotePrompt = basePrompt +
-            "\\n\\nПопытка " + quoteAttempt + " из 8. Не используй ни одну из уже отклонённых цитат и не меняй в них только автора или отдельные слова. " +
+            "\n\nПопытка " + quoteAttempt + " из 8. Не используй ни одну из уже отклонённых цитат и не меняй в них только автора или отдельные слова. " +
             "Уже отклонённые варианты и причины: " + JSON.stringify(rejectedQuotes) +
-            ". Выбери другого автора И другую цитату. Если точная атрибуция не подтверждается результатами поиска, верни {\\\"skip\\\":true}.";
+            ". Выбери другого автора И другую цитату. Если точная атрибуция не подтверждается результатами поиска, верни {\\"skip\\":true}.";
           try {
             let generated = await deps.geminiGenerate(env, quotePrompt, {
               task: "hourly_verified_inspirational_quote",
@@ -997,7 +997,7 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
             // Try the independent Groq browser-search route before rejecting this candidate.
             if (!generatedSources.length && typeof deps.groqGenerate === "function") {
               const fallback = await deps.groqGenerate(env,
-                quotePrompt + "\\nИспользуй browser search и верни только JSON с точной цитатой и автором.",
+                quotePrompt + "\nИспользуй browser search и верни только JSON с точной цитатой и автором.",
                 {
                   task: "hourly_verified_inspirational_quote_fallback",
                   temperature: 0.2,
@@ -1018,10 +1018,10 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
             if (parsed.skip === true) throw new Error("Поиск не подтвердил точную цитату и авторство");
             const quote = normalizeText(parsed.quote || "");
             const author = normalizeText(parsed.author || "");
-            if (!quote || !author || quote.length > 300 || author.length > 90 || /[#@]|https?:\\/\\//iu.test(quote + author)) {
+            if (!quote || !author || quote.length > 300 || author.length > 90 || /[#@]|https?:\/\//iu.test(quote + author)) {
               throw new Error("Цитата или имя автора не прошли проверку формата");
             }
-            const candidateText = "«" + quote.replace(/^«|»$/gu, "") + "»\\n\\n— " + author;
+            const candidateText = "«" + quote.replace(/^«|»$/gu, "") + "»\n\n— " + author;
             if (isDuplicateHourlyStory(candidateText, [], specialHistory)) {
               rejectedQuotes.push({ quote: quote.slice(0, 220), author, reason: "цитата или близкая формулировка уже публиковалась" });
               lastQuoteError = "Цитата уже публиковалась недавно";
@@ -1049,10 +1049,10 @@ export async function runHourlyAutoPublish(coordinator, payload, deps) {
           });
           const parsed = parseJsonObject(generated);
           specialText = normalizeText(parsed.text || parsed.post || "");
-          const questionMarks = (specialText.match(/\\?/gu) || []).length;
-          const sentenceCount = (specialText.match(/[.!?]+(?=\\s|$)/gu) || []).length;
+          const questionMarks = (specialText.match(/\?/gu) || []).length;
+          const sentenceCount = (specialText.match(/[.!?]+(?=\s|$)/gu) || []).length;
           if (!specialText || specialText.length > 220 || !/[А-Яа-яЁё]/u.test(specialText) ||
-              /[#@]|https?:\\/\\//iu.test(specialText) || !specialText.endsWith("?") ||
+              /[#@]|https?:\/\//iu.test(specialText) || !specialText.endsWith("?") ||
               questionMarks !== 1 || sentenceCount !== 1) {
             throw new Error("Ностальгический пост должен быть ровно одним предложением-вопросом");
           }
