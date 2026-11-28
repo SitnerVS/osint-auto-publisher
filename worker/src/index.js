@@ -1553,9 +1553,20 @@ export default {
         });
         if (localTime.endsWith(":00") && hourlySettings.enabled === true) {
           const hourlyResult = await callCoordinator(env, "/hourly-auto-publish", {
-            scheduled_at: controller.scheduledTime
+            scheduled_at: controller.scheduledTime,
+            stream: "topic"
           });
           console.log("Hourly OSINT/compliance/anti-fraud auto-publish result:", hourlyResult);
+
+          const moscowHour = Number(localTime.slice(0, 2));
+          const specialHours = [8, 11, 14, 17, 20];
+          if (specialHours.includes(moscowHour)) {
+            const specialResult = await callCoordinator(env, "/hourly-auto-publish", {
+              scheduled_at: controller.scheduledTime,
+              stream: "special"
+            });
+            console.log("Additional quote/nostalgia auto-publish result:", specialResult);
+          }
         }
       } catch (error) {
         console.error("Scheduled social workflow failed:", error.message);
