@@ -21,7 +21,7 @@ Threads-only editorial publishing workflow for OSINTNER.
 - A post is sent to Threads only after explicit final approval.
 
 ## Safety and publishing
-- Live publishing remains disabled until the text-only approval cycle is tested end to end.
+- The separate approval-based editorial feed remains gated until its own text-only approval cycle is tested end to end; the hourly topic and special streams are autonomous and do not request Telegram approval.
 - Duplicate-safe container and publication state handling is retained.
 - Ambiguous publishing outcomes are locked against automatic retries to prevent duplicate posts.
 - /publish_retry material-id is available only for safely retryable publication attempts.
