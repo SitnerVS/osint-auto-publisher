@@ -3442,7 +3442,7 @@ export class ApprovalCoordinator {
         try {
           const retryResult = await runHourlyAutoPublish(
             this,
-            { scheduled_at: Number(retryJob.scheduled_at || now), slot: retryJob.slot, retry: true },
+            { scheduled_at: Number(retryJob.scheduled_at || now), slot: retryJob.slot, stream: retryJob.stream || "topic", retry: true },
             { geminiGenerate, groqGenerate, tavilySearch, telegram }
           );
           if (retryResult?.published || retryResult?.pending_approval || retryResult?.reason === "slot_already_published") {
